@@ -1,6 +1,6 @@
 # XCWeb (Xtreme Cognitive Web) —— 产品需求文档 (PRD)
 
-> **竞赛命题**：全国高校 AI Web 开发挑战赛 —— “智启未来：AI驱动的Web应用创新挑战”  
+> **设计定位**：面向下一代人机交互标准的极客级 AI Native 对话与智能体平台  
 > **版本**：v1.0.0-Release  
 > **代号**：XCWeb (Xtreme Cognitive Web)  
 > **技术栈**：Vue 3 + TypeScript + Tailwind CSS (Vite) + Spring Boot 3 (Java 17/21) + SQLite  
@@ -77,7 +77,7 @@
 | **硅基流动 (SiliconFlow)** | `deepseek-ai/DeepSeek-R1-Distill-Qwen-7B`<br/>`Qwen/Qwen2.5-7B-Instruct` | 注册赠送海量 Token，部分小规格模型永久免费；原生支持 `<think>` 标签 | **默认主力模型 (支持思维链)** |
 | **智谱 AI (BigModel)** | `glm-4-flash` | **完全永久免费**；支持 128K 超长上下文；API 稳定 | **长文分析与快速问答备用** |
 | **Groq Cloud** | `llama-3.3-70b-versatile` | 免费公测；300+ Tokens/s 极致流式输出 | **代码编写与极速响应** |
-| **本地内置 Mock 降级** | `mock-cognitive-core` | 无网络或未配 Key 时自动切换，模拟 DeepSeek 思考与打字机输出 | **评委离线评审兜底保护** |
+| **本地内置 Mock 降级** | `mock-cognitive-core` | 无网络或未配 Key 时自动切换，模拟 DeepSeek 思考与打字机输出 | **离线演示与无外网兜底保护** |
 
 ---
 
@@ -221,12 +221,12 @@ CREATE TABLE IF NOT EXISTS messages (
 
 ---
 
-## 6. 竞赛亮点功能设计 (冲刺国赛一等奖专项)
+## 6. 核心技术创新亮点 (Technical Innovations)
 
-大赛评分体系中 **“AI 技术深度 (35%)”** 与 **“创新性 (25%)”** 占 60% 的决定性权重。为此，XCWeb 额外规划三大差异化竞赛创新模块：
+系统重点在“AI 深度交互”与“技术创新”维度进行了深化，规划了三大差异化核心模块：
 
 1. **AI Agent 可视化思考时间轴 (Agent Thought Timeline)**：
-   - 在对话中若触发工具（如天气查询、代码执行沙箱、网页检索），对话气泡上方展示可交互的步骤时间轴：`规划 -> 工具调用 -> 数据回传 -> 总结分析`，极大提升 AI 深度分。
+   - 在对话中若触发工具（如天气查询、代码执行沙箱、网页检索），对话气泡上方展示可交互的步骤时间轴：`规划 -> 工具调用 -> 数据回传 -> 总结分析`，极大提升 AI 深度交互体验。
 2. **端侧轻量 RAG 知识检索 (Client-Side Document RAG)**：
    - 用户拖入长文本/论文/代码文件时，前端本地进行语义分块与倒排/向量匹配；提问时自动拼接关联段落，并在回答中附带【引用来源 [1] [2]】高亮点击跳转。
 3. **生成式交互 UI (Generative UI Component)**：
@@ -242,6 +242,6 @@ CREATE TABLE IF NOT EXISTS messages (
 2. **性能与体验标准**：
    - 首屏加载（FCP）在 1.2 秒内完成。
    - 视图过渡动效稳态保持在 55-60 FPS，无丢帧卡顿。
-3. **评审材料规范**：
-   - 包含符合竞赛标准的 30 页架构设计与开发技术白皮书（PDF）。
+3. **交付材料规范**：
+   - 包含完整的系统架构设计与开发技术白皮书（PDF）。
    - 包含 5-8 分钟 1080P 高清演示讲解视频。
