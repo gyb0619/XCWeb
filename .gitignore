@@ -1,0 +1,25 @@
+# Local launcher (not committed to git)
+start/
+/start/
+
+# Dependencies & Build Outputs
+frontend/node_modules/
+frontend/dist/
+backend/target/
+
+# SQLite Database Files
+*.db
+*.db-shm
+*.db-wal
+
+# Environment & Local Secrets
+.env
+.env.local
+.env.*.local
+
+# IDE & OS
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db

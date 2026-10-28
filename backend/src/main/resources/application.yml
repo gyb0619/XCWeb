@@ -1,0 +1,93 @@
+server:
+  port: ${SERVER_PORT:8080}
+
+spring:
+  application:
+    name: xcweb-backend
+  main:
+    web-application-type: servlet
+  datasource:
+    url: jdbc:sqlite:${XCWEB_DB_PATH:xcweb.db}?journal_mode=WAL&busy_timeout=5000&foreign_keys=ON
+    driver-class-name: org.sqlite.JDBC
+    hikari:
+      maximum-pool-size: 1
+      minimum-idle: 1
+      connection-timeout: 10000
+      connection-init-sql: PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;
+
+xcweb:
+  timezone: ${XCWEB_TIMEZONE:Asia/Shanghai}
+  security:
+    jwt-secret: ${XCWEB_JWT_SECRET:xcweb-electric-cyber-blue-hmac-sha256-secret-key-2026-xtreme-cognitive}
+    user-token-days: 7
+    guest-token-days: 30
+    init-demo-accounts: ${XCWEB_INIT_DEMO_ACCOUNTS:true}
+    admin-username: ${XCWEB_ADMIN_USERNAME:admin}
+    admin-password: ${XCWEB_ADMIN_PASSWORD:}
+    dev-username: ${XCWEB_DEV_USERNAME:developer}
+    dev-password: ${XCWEB_DEV_PASSWORD:}
+    demo-admin-fallback: ${XCWEB_DEMO_ADMIN_FALLBACK:}
+    demo-dev-fallback: ${XCWEB_DEMO_DEV_FALLBACK:}
+  quota:
+    guest-daily-limit: ${XCWEB_QUOTA_GUEST_DAILY_LIMIT:10}
+    guest-context-limit: ${XCWEB_QUOTA_GUEST_CONTEXT_LIMIT:4000}
+    user-daily-limit: ${XCWEB_QUOTA_USER_DAILY_LIMIT:50}
+    user-context-limit: ${XCWEB_QUOTA_USER_CONTEXT_LIMIT:16000}
+    ip-daily-limit: ${XCWEB_QUOTA_IP_DAILY_LIMIT:30}
+    token-issue-daily-limit: ${XCWEB_QUOTA_TOKEN_ISSUE_DAILY_LIMIT:5}
+  llm:
+    default-model: ${XCWEB_DEFAULT_MODEL:deepseek-ai/DeepSeek-R1-Distill-Qwen-7B}
+    connect-timeout-ms: ${XCWEB_LLM_CONNECT_TIMEOUT_MS:5000}
+    first-token-timeout-ms: ${XCWEB_LLM_FIRST_TOKEN_TIMEOUT_MS:8000}
+    max-consecutive-failures: ${XCWEB_LLM_MAX_CONSECUTIVE_FAILURES:3}
+    providers:
+      siliconflow:
+        base-url: ${SILICONFLOW_BASE_URL:https://api.siliconflow.cn/v1}
+        api-key: ${SILICONFLOW_API_KEY:}
+      zhipu:
+        base-url: ${ZHIPU_BASE_URL:https://open.bigmodel.cn/api/paas/v4}
+        api-key: ${ZHIPU_API_KEY:}
+      groq:
+        base-url: ${GROQ_BASE_URL:https://api.groq.com/openai/v1}
+        api-key: ${GROQ_API_KEY:}
+    models:
+      - id: deepseek-ai/DeepSeek-R1-Distill-Qwen-7B
+        name: DeepSeek-R1-Distill-Qwen-7B
+        provider: SiliconFlow
+        description: 默认主力推理模型，支持深度思考思维链输出
+        supports-thinking: true
+        enabled: true
+        is-default: true
+        is-mock: false
+      - id: Qwen/Qwen2.5-7B-Instruct
+        name: Qwen2.5-7B-Instruct
+        provider: SiliconFlow
+        description: 硅基流动免费通用对话模型，均衡高效
+        supports-thinking: false
+        enabled: true
+        is-default: false
+        is-mock: false
+      - id: glm-4-flash
+        name: GLM-4-Flash
+        provider: ZhipuAI
+        description: 智谱 AI 免费高速模型，长文分析与快速问答备用
+        supports-thinking: false
+        enabled: true
+        is-default: false
+        is-mock: false
+      - id: llama-3.3-70b-versatile
+        name: Llama-3.3-70B-Versatile
+        provider: Groq
+        description: Groq Cloud 超低延迟推理，适合代码编写与即时问答
+        supports-thinking: false
+        enabled: true
+        is-default: false
+        is-mock: false
+      - id: mock-cognitive-core
+        name: XCWeb Cognitive Mock Core
+        provider: BuiltInMock
+        description: 无需网络与 Key，内置模拟深度思考、Agent 工具链与流式输出
+        supports-thinking: true
+        enabled: true
+        is-default: false
+        is-mock: true
