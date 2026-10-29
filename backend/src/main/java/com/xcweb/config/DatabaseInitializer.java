@@ -47,6 +47,12 @@ public class DatabaseInitializer implements ApplicationRunner {
         jdbcTemplate.execute("PRAGMA busy_timeout=5000;");
         jdbcTemplate.execute("PRAGMA foreign_keys=ON;");
 
+        try {
+            jdbcTemplate.update("DELETE FROM quota_logs WHERE identifier LIKE 'token_%'");
+        } catch (Exception ignored) {
+            // Table might not exist on very first run, handled below
+        }
+
         jdbcTemplate.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,

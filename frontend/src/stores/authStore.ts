@@ -28,6 +28,9 @@ export const useAuthStore = defineStore('auth', () => {
   const showAuthOverlay = ref<boolean>(!localStorage.getItem(TOKEN_STORAGE_KEY))
   const authOverlayInitialTab = ref<'login' | 'register' | 'guest'>('login')
 
+  let isRecoveringAuth = false
+  let inFlightGuestLogin: Promise<GuestSession> | null = null
+
   function loadStoredUser(): UserInfo | null {
     try {
       const raw = localStorage.getItem(USER_STORAGE_KEY)
@@ -111,53 +114,76 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function loginAsGuest(silent = false): Promise<GuestSession> {
-    isLoading.value = true
-    authError.value = null
-    try {
-      if (!fingerprintHash.value) {
-        fingerprintHash.value = await getBrowserFingerprint()
-      }
-
-      let session: GuestSession
-      try {
-        session = await apiRequest<GuestSession>('/api/auth/guest', {
-          method: 'POST',
-          body: JSON.stringify({ fingerprintHash: fingerprintHash.value }),
-        })
-      } catch {
-        // 离线或后端未启动时的本地兜底匿名会话
-        const fallbackId =
-          guestId.value || `guest_${fingerprintHash.value.slice(0, 10)}`
-        session = {
-          token: `guest_offline_${fingerprintHash.value.slice(0, 24)}`,
-          guestId: fallbackId,
-          fingerprintHash: fingerprintHash.value,
-          role: 'guest',
-          expiresAt: Date.now() + 30 * 24 * 3600 * 1000,
-        }
-      }
-
-      persistAuthState(session.token, null, session.guestId)
-
-      const configStore = useConfigStore()
-      if (configStore.theme === 'incognito') {
-        configStore.setTheme('dark')
-      }
-
-      const quotaStore = useQuotaStore()
-      await quotaStore.fetchQuotaStatus()
-
-      const chatStore = useChatStore()
-      chatStore.setIncognito(false)
-      await chatStore.loadConversations()
-
-      if (!silent) {
-        showAuthOverlay.value = false
-      }
-      return session
-    } finally {
-      isLoading.value = false
+    if (inFlightGuestLogin) {
+      return inFlightGuestLogin
     }
+
+    inFlightGuestLogin = (async () => {
+      isLoading.value = true
+      authError.value = null
+      try {
+        if (!fingerprintHash.value) {
+          fingerprintHash.value = await getBrowserFingerprint()
+        }
+
+        let session: GuestSession
+        let isFallback = false
+        try {
+          session = await apiRequest<GuestSession>('/api/auth/guest', {
+            method: 'POST',
+            body: JSON.stringify({ fingerprintHash: fingerprintHash.value }),
+          })
+        } catch {
+          // 离线或后端未启动时的本地兜底匿名会话
+          isFallback = true
+          const fallbackId =
+            guestId.value || `guest_${fingerprintHash.value.slice(0, 10)}`
+          session = {
+            token: `guest_offline_${fingerprintHash.value.slice(0, 24)}`,
+            guestId: fallbackId,
+            fingerprintHash: fingerprintHash.value,
+            role: 'guest',
+            expiresAt: Date.now() + 30 * 24 * 3600 * 1000,
+          }
+        }
+
+        persistAuthState(session.token, null, session.guestId)
+
+        const configStore = useConfigStore()
+        if (configStore.theme === 'incognito') {
+          configStore.setTheme('dark')
+        }
+
+        const quotaStore = useQuotaStore()
+        if (isFallback) {
+          quotaStore.applyRoleDefaults('guest')
+        } else {
+          try {
+            await quotaStore.fetchQuotaStatus()
+          } catch {
+            quotaStore.applyRoleDefaults('guest')
+          }
+        }
+
+        const chatStore = useChatStore()
+        chatStore.setIncognito(false)
+        try {
+          await chatStore.loadConversations()
+        } catch {
+          // offline conversations ignore
+        }
+
+        if (!silent) {
+          showAuthOverlay.value = false
+        }
+        return session
+      } finally {
+        isLoading.value = false
+        inFlightGuestLogin = null
+      }
+    })()
+
+    return inFlightGuestLogin
   }
 
   async function login(username: string, password: string): Promise<UserInfo> {
@@ -302,10 +328,28 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   function handleUnauthorized(reason?: string) {
+    if (isRecoveringAuth) return
+    isRecoveringAuth = true
     authError.value = reason || '登录状态已失效，请重新认证'
-    if (token.value) {
-      persistAuthState('', null)
-      void loginAsGuest(true)
+
+    const hadValidToken = Boolean(
+      token.value &&
+      !token.value.startsWith('guest_offline_') &&
+      !token.value.startsWith('demo_')
+    )
+
+    persistAuthState('', null)
+
+    if (hadValidToken) {
+      void loginAsGuest(true).finally(() => {
+        setTimeout(() => {
+          isRecoveringAuth = false
+        }, 1500)
+      })
+    } else {
+      setTimeout(() => {
+        isRecoveringAuth = false
+      }, 1000)
     }
   }
 

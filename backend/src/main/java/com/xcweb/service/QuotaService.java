@@ -124,16 +124,27 @@ public class QuotaService {
         }
     }
 
+    private boolean isLoopbackAddress(String ip) {
+        if (ip == null || ip.isBlank()) return true;
+        return ip.equals("127.0.0.1") ||
+               ip.equals("0:0:0:0:0:0:0:1") ||
+               ip.equals("::1") ||
+               ip.equalsIgnoreCase("localhost");
+    }
+
     public synchronized void checkAndIncrementTokenIssue(String fingerprintHash, String clientIp) {
         String date = todayStr();
-        int limit = properties.getQuota().getTokenIssueDailyLimit();
+        int configuredLimit = properties.getQuota().getTokenIssueDailyLimit();
+        boolean isLocal = isLoopbackAddress(clientIp);
+        int limit = isLocal ? Math.max(configuredLimit, 200) : configuredLimit;
+
         String fpId = "token_fp:" + fingerprintHash;
         String ipId = "token_ip:" + clientIp;
 
         int fpCount = getCallCount(fpId, date);
-        int ipCount = getCallCount(ipId, date);
+        int ipCount = isLocal ? 0 : getCallCount(ipId, date);
 
-        if (fpCount >= limit || ipCount >= limit) {
+        if (fpCount >= limit || (!isLocal && ipCount >= limit)) {
             throw new ApiException(
                     HttpStatus.TOO_MANY_REQUESTS,
                     "TOKEN_ISSUE_LIMIT_EXCEEDED",
@@ -142,7 +153,9 @@ public class QuotaService {
         }
 
         incrementCallCount(fpId, "guest_token", date);
-        incrementCallCount(ipId, "guest_token", date);
+        if (!isLocal) {
+            incrementCallCount(ipId, "guest_token", date);
+        }
     }
 
     public synchronized void checkAndAcquireQuota(AuthPrincipal principal, String clientIp) {

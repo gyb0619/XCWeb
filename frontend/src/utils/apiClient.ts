@@ -31,14 +31,14 @@ export async function buildAuthHeaders(
     ...extraHeaders,
   }
 
-  if (authStore.token) {
+  if (authStore.token && !authStore.token.startsWith('guest_offline_')) {
     headers['Authorization'] = `Bearer ${authStore.token}`
   }
 
   return headers
 }
 
-export async function handleHttpErrorResponse(response: Response): Promise<never> {
+export async function handleHttpErrorResponse(response: Response, url?: string): Promise<never> {
   const quotaStore = useQuotaStore()
   const authStore = useAuthStore()
 
@@ -89,7 +89,17 @@ export async function handleHttpErrorResponse(response: Response): Promise<never
     }
     quotaStore.triggerContextTooLong(ctxError)
   } else if (response.status === 401 || response.status === 403) {
-    authStore.handleUnauthorized(message)
+    const isAuthEndpoint =
+      url &&
+      (url.includes('/api/auth/guest') ||
+        url.includes('/api/auth/login') ||
+        url.includes('/api/auth/register') ||
+        url.includes('/api/auth/me'))
+    const isQuotaStatus = url && url.includes('/api/quota/status')
+
+    if (!isAuthEndpoint && !isQuotaStatus) {
+      authStore.handleUnauthorized(message)
+    }
   }
 
   throw new ApiHttpError(response.status, code, message, payload)
@@ -122,7 +132,7 @@ export async function apiRequest<T>(
   })
 
   if (!response.ok) {
-    await handleHttpErrorResponse(response)
+    await handleHttpErrorResponse(response, url)
   }
 
   if (response.status === 204) {
