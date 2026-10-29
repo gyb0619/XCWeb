@@ -43,7 +43,7 @@ public class SecurityConfig {
                         .dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/api/auth/guest", "/api/auth/register", "/api/auth/login").permitAll()
-                        .requestMatchers("/api/models").permitAll()
+                        .requestMatchers("/api/models", "/api/models/**").permitAll()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .requestMatchers("/api/dev/**").hasRole("DEV")
                         .requestMatchers("/api/sync/**").hasAnyRole("USER", "ADMIN", "DEV")

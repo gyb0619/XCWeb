@@ -85,10 +85,36 @@ export interface ModelInfo {
   isDefault: boolean
   isMock: boolean
   keyConfigured?: boolean
+  baseUrl?: string
+  apiKey?: string
+  hasApiKey?: boolean
 }
 
 export interface AdminModelInfo extends ModelInfo {
   keyConfigured: boolean
+}
+
+export interface ImportEnvResponse {
+  success: boolean
+  consentGranted: boolean
+  detectedVariables: string[]
+  updatedCount: number
+  message: string
+  models: AdminModelInfo[]
+}
+
+export interface ModelUpdatePayload {
+  modelId?: string
+  id?: string
+  name?: string
+  provider?: string
+  baseUrl?: string
+  apiKey?: string
+  description?: string
+  supportsThinking?: boolean
+  enabled?: boolean
+  isDefault?: boolean
+  clearApiKey?: boolean
 }
 
 export interface ModelsListResponse {

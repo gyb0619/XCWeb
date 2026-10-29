@@ -16,6 +16,7 @@ import {
   MoreVertical,
   User,
   Zap,
+  Cpu,
 } from 'lucide-vue-next'
 import { useAuthStore } from '@/stores/authStore'
 import { useChatStore } from '@/stores/chatStore'
@@ -397,6 +398,18 @@ onUnmounted(() => {
           >
             <Settings class="w-4 h-4 text-muted" />
             <span>全局设置 (System Prompt)</span>
+          </button>
+
+          <button
+            type="button"
+            class="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg hover:bg-elevated text-primary-light hover:text-main transition-colors"
+            @click="
+              configStore.showModelConfigModal = true;
+              isUserMenuOpen = false;
+            "
+          >
+            <Cpu class="w-4 h-4 text-primary-light" />
+            <span>AI 模型配置 (端点/Key/系统变量)</span>
           </button>
 
           <button

@@ -1,7 +1,10 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import type {
+  AdminModelInfo,
+  ImportEnvResponse,
   ModelInfo,
+  ModelUpdatePayload,
   ModelsListResponse,
   SyncSettingsResponse,
   ThemeMode,
@@ -95,7 +98,11 @@ export const useConfigStore = defineStore('config', () => {
   const showSettingsModal = ref<boolean>(false)
   const showAdminModal = ref<boolean>(false)
   const showDevConsoleModal = ref<boolean>(false)
+  const showModelConfigModal = ref<boolean>(false)
   const isSidebarCollapsed = ref<boolean>(false)
+
+  const allManageableModels = ref<AdminModelInfo[]>([])
+  const isImportingEnv = ref<boolean>(false)
 
   // 预留给阶段 2 (@Motion-FX-Engineer) 对角线扫屏动效钩子
   const customThemeSweepHandler = ref<
@@ -303,6 +310,59 @@ export const useConfigStore = defineStore('config', () => {
     }
   }
 
+  async function fetchManageableModels(): Promise<AdminModelInfo[]> {
+    try {
+      const res = await apiRequest<{ models?: AdminModelInfo[] } | AdminModelInfo[]>('/api/models/manage')
+      const list = Array.isArray(res) ? res : (res.models ?? [])
+      if (list.length > 0) {
+        allManageableModels.value = list
+        return list
+      }
+    } catch {
+      // fallback
+    }
+    allManageableModels.value = models.value.map((m) => ({
+      ...m,
+      keyConfigured: Boolean(m.keyConfigured ?? m.isMock),
+    }))
+    return allManageableModels.value
+  }
+
+  async function updateModelConfig(payload: ModelUpdatePayload): Promise<AdminModelInfo | null> {
+    const targetId = payload.id || payload.modelId || ''
+    try {
+      const updated = await apiRequest<AdminModelInfo>(
+        `/api/models/${encodeURIComponent(targetId)}`,
+        {
+          method: 'PUT',
+          body: JSON.stringify(payload),
+        },
+      )
+      await fetchModels()
+      await fetchManageableModels()
+      return updated
+    } catch (e) {
+      throw e
+    }
+  }
+
+  async function importEnvConfig(consent: boolean): Promise<ImportEnvResponse> {
+    isImportingEnv.value = true
+    try {
+      const res = await apiRequest<ImportEnvResponse>('/api/models/import-env', {
+        method: 'POST',
+        body: JSON.stringify({ consent }),
+      })
+      if (res && Array.isArray(res.models)) {
+        allManageableModels.value = res.models
+      }
+      await fetchModels()
+      return res
+    } finally {
+      isImportingEnv.value = false
+    }
+  }
+
   return {
     theme,
     previousThemeBeforeIncognito,
@@ -319,11 +379,17 @@ export const useConfigStore = defineStore('config', () => {
     showSettingsModal,
     showAdminModal,
     showDevConsoleModal,
+    showModelConfigModal,
     isSidebarCollapsed,
+    allManageableModels,
+    isImportingEnv,
     setTheme,
     toggleLightDarkTheme,
     registerThemeSweepHandler,
     fetchModels,
+    fetchManageableModels,
+    updateModelConfig,
+    importEnvConfig,
     selectModel,
     updateSettings,
     pullCloudSettings,

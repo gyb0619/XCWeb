@@ -8,6 +8,7 @@ import {
   ChevronDown,
   Check,
   Zap,
+  Sliders,
 } from 'lucide-vue-next'
 import { useConfigStore } from '@/stores/configStore'
 import { useChatStore } from '@/stores/chatStore'
@@ -103,6 +104,24 @@ function handleToggleTheme() {
             class="w-4 h-4 text-primary-light shrink-0 mt-1"
           />
         </button>
+
+        <!-- 二级配置与管理模型快捷入口 -->
+        <div class="pt-1 border-t border-subtle">
+          <button
+            type="button"
+            class="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs text-cyber-cyan hover:bg-elevated transition-colors font-medium"
+            @click="
+              configStore.showModelConfigModal = true;
+              isModelDropdownOpen = false;
+            "
+          >
+            <span class="flex items-center gap-1.5">
+              <Sliders class="w-3.5 h-3.5" />
+              <span>配置模型 / 导入系统变量</span>
+            </span>
+            <span class="text-[10px] text-muted">自定义 Key 与端点</span>
+          </button>
+        </div>
       </div>
 
       <!-- 无痕状态轻量指示胶囊 -->

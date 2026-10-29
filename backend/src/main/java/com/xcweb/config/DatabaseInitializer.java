@@ -137,27 +137,93 @@ public class DatabaseInitializer implements ApplicationRunner {
         jdbcTemplate.execute("""
             CREATE TABLE IF NOT EXISTS model_states (
                 model_id VARCHAR(120) PRIMARY KEY,
+                name VARCHAR(120),
+                provider VARCHAR(80),
+                api_key VARCHAR(255),
+                base_url VARCHAR(255),
+                description TEXT,
+                supports_thinking INTEGER NOT NULL DEFAULT 0,
                 enabled INTEGER NOT NULL DEFAULT 1,
                 is_default INTEGER NOT NULL DEFAULT 0,
+                is_mock INTEGER NOT NULL DEFAULT 0,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
             """);
+
+        ensureColumnExists("model_states", "name", "VARCHAR(120)");
+        ensureColumnExists("model_states", "provider", "VARCHAR(80)");
+        ensureColumnExists("model_states", "api_key", "VARCHAR(255)");
+        ensureColumnExists("model_states", "base_url", "VARCHAR(255)");
+        ensureColumnExists("model_states", "description", "TEXT");
+        ensureColumnExists("model_states", "supports_thinking", "INTEGER NOT NULL DEFAULT 0");
+        ensureColumnExists("model_states", "is_mock", "INTEGER NOT NULL DEFAULT 0");
+    }
+
+    private void ensureColumnExists(String tableName, String columnName, String columnType) {
+        try {
+            jdbcTemplate.execute("ALTER TABLE " + tableName + " ADD COLUMN " + columnName + " " + columnType);
+        } catch (Exception ignored) {
+            // Column already exists or table locked
+        }
     }
 
     private void initPresetModelStates() {
         List<XcWebProperties.PresetModel> models = properties.getLlm().getModels();
         for (XcWebProperties.PresetModel model : models) {
+            String provider = model.getProvider();
+            String defaultBaseUrl = "";
+            String defaultApiKey = "";
+            if (properties.getLlm().getProviders() != null) {
+                String key = provider != null ? provider.toLowerCase() : "";
+                if (key.contains("silicon")) key = "siliconflow";
+                else if (key.contains("zhipu") || key.contains("bigmodel")) key = "zhipu";
+                else if (key.contains("groq")) key = "groq";
+                XcWebProperties.ProviderConfig pCfg = properties.getLlm().getProviders().get(key);
+                if (pCfg != null) {
+                    if (pCfg.getBaseUrl() != null) defaultBaseUrl = pCfg.getBaseUrl();
+                    if (pCfg.getApiKey() != null) defaultApiKey = pCfg.getApiKey();
+                }
+            }
+
             Integer count = jdbcTemplate.queryForObject(
                     "SELECT COUNT(1) FROM model_states WHERE model_id = ?",
                     Integer.class,
                     model.getId()
             );
             if (count == null || count == 0) {
-                jdbcTemplate.update(
-                        "INSERT INTO model_states (model_id, enabled, is_default) VALUES (?, ?, ?)",
-                        model.getId(),
-                        model.isEnabled() ? 1 : 0,
-                        model.isDefault() ? 1 : 0
+                jdbcTemplate.update("""
+                    INSERT INTO model_states (model_id, name, provider, api_key, base_url, description, supports_thinking, enabled, is_default, is_mock)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    model.getId(),
+                    model.getName(),
+                    model.getProvider(),
+                    defaultApiKey,
+                    defaultBaseUrl,
+                    model.getDescription(),
+                    model.isSupportsThinking() ? 1 : 0,
+                    model.isEnabled() ? 1 : 0,
+                    model.isDefault() ? 1 : 0,
+                    model.isMock() ? 1 : 0
+                );
+            } else {
+                jdbcTemplate.update("""
+                    UPDATE model_states
+                    SET name = CASE WHEN name IS NULL OR name = '' THEN ? ELSE name END,
+                        provider = CASE WHEN provider IS NULL OR provider = '' THEN ? ELSE provider END,
+                        base_url = CASE WHEN base_url IS NULL OR base_url = '' THEN ? ELSE base_url END,
+                        description = CASE WHEN description IS NULL OR description = '' THEN ? ELSE description END,
+                        supports_thinking = COALESCE(supports_thinking, ?),
+                        is_mock = COALESCE(is_mock, ?)
+                    WHERE model_id = ?
+                    """,
+                    model.getName(),
+                    model.getProvider(),
+                    defaultBaseUrl,
+                    model.getDescription(),
+                    model.isSupportsThinking() ? 1 : 0,
+                    model.isMock() ? 1 : 0,
+                    model.getId()
                 );
             }
         }

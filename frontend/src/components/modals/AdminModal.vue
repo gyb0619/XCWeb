@@ -9,7 +9,6 @@ import {
   CheckCircle2,
   Star,
   RefreshCw,
-  Lock,
 } from 'lucide-vue-next'
 import { useConfigStore } from '@/stores/configStore'
 import { apiRequest } from '@/utils/apiClient'
@@ -305,12 +304,24 @@ onMounted(() => {
         <!-- Tab 2: 预置模型启停与默认切换 -->
         <template v-else>
           <div
-            class="p-3 rounded-xl bg-primary/10 border border-primary/30 text-xs text-sub flex items-center gap-2.5"
+            class="p-3.5 rounded-xl bg-primary/10 border border-primary/30 text-xs text-sub flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3"
           >
-            <Lock class="w-4 h-4 text-primary-light shrink-0" />
-            <span>
-              <strong>安全合规约束（PRD 3.2）</strong>：管理员仅可启用/停用服务端预置模型或切换默认主力模型，不允许新增自定义模型接口或传入 API Key。
-            </span>
+            <div class="flex items-center gap-2.5">
+              <Cpu class="w-4 h-4 text-primary-light shrink-0" />
+              <span>
+                <strong>模型配置与管理</strong>：已全面对所有用户开放自定义端点、API Key 与系统环境变量授权读取。
+              </span>
+            </div>
+            <button
+              type="button"
+              class="cyber-btn-primary px-3 py-1.5 rounded-lg text-xs font-semibold shrink-0 shadow-cyber-glow"
+              @click="
+                configStore.showModelConfigModal = true;
+                configStore.showAdminModal = false;
+              "
+            >
+              打开 AI 模型详细配置面板
+            </button>
           </div>
 
           <div class="space-y-2.5">

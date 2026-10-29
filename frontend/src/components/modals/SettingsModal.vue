@@ -144,6 +144,24 @@ async function handleSave() {
         <Sparkles class="w-4 h-4 shrink-0 opacity-75" />
       </div>
 
+      <!-- AI 模型配置快捷通道 -->
+      <div class="p-3 rounded-xl bg-card border border-subtle flex items-center justify-between">
+        <div class="space-y-0.5">
+          <p class="text-xs font-semibold text-main">AI 模型端点与密钥配置</p>
+          <p class="text-[11px] text-muted">支持配置自定义 API Key、端点 Base URL 及导入环境变量</p>
+        </div>
+        <button
+          type="button"
+          class="px-3 py-1.5 rounded-lg cyber-btn-primary text-xs font-medium shrink-0"
+          @click="
+            configStore.showModelConfigModal = true;
+            configStore.showSettingsModal = false;
+          "
+        >
+          配置模型
+        </button>
+      </div>
+
       <!-- 底部操作栏 -->
       <div class="flex items-center justify-end gap-2.5 pt-2">
         <button

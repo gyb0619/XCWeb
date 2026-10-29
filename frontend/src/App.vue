@@ -8,6 +8,7 @@ import QuotaExceededModal from '@/components/modals/QuotaExceededModal.vue'
 import AdminModal from '@/components/modals/AdminModal.vue'
 import SettingsModal from '@/components/modals/SettingsModal.vue'
 import DevConsoleModal from '@/components/modals/DevConsoleModal.vue'
+import ModelConfigModal from '@/components/modals/ModelConfigModal.vue'
 import AuthDialog from '@/components/auth/AuthDialog.vue'
 import ThemeSweepOverlay from '@/components/motion/ThemeSweepOverlay.vue'
 import { useChatStream } from '@/composables/useChatStream'
@@ -57,6 +58,7 @@ onMounted(async () => {
     <AdminModal />
     <SettingsModal />
     <DevConsoleModal />
+    <ModelConfigModal v-if="configStore.showModelConfigModal" />
     <AuthDialog />
   </div>
 </template>

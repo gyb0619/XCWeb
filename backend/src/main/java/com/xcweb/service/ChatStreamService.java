@@ -72,16 +72,13 @@ public class ChatStreamService {
                 ? request.getModel().trim()
                 : modelService.getDefaultModelId();
 
-        XcWebProperties.PresetModel presetModel = modelService.findPresetModel(requestedModelId);
-        if (presetModel == null) {
-            presetModel = modelService.findPresetModel(modelService.getDefaultModelId());
-        }
-        String modelId = presetModel != null ? presetModel.getId() : "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B";
-        String provider = presetModel != null ? presetModel.getProvider() : "SiliconFlow";
+        ModelService.EffectiveModelConfig modelConfig = modelService.getEffectiveModelConfig(requestedModelId);
+        String modelId = modelConfig.getModelId();
+        String provider = modelConfig.getProvider();
         boolean isExplicitMock = "mock-cognitive-core".equalsIgnoreCase(modelId)
-                || (presetModel != null && presetModel.isMock());
+                || modelConfig.isMock();
 
-        boolean keyConfigured = modelService.isProviderKeyConfigured(provider);
+        boolean keyConfigured = modelService.isModelOrProviderKeyConfigured(modelId, provider);
         int failures = providerFailures.computeIfAbsent(provider, k -> new AtomicInteger(0)).get();
         int maxFailures = properties.getLlm().getMaxConsecutiveFailures();
 
@@ -141,8 +138,10 @@ public class ChatStreamService {
                                        String provider,
                                        int estimatedPromptTokens,
                                        long startTime) {
-        XcWebProperties.ProviderConfig providerCfg = modelService.getProviderConfig(provider);
-        if (providerCfg == null || providerCfg.getApiKey() == null || providerCfg.getApiKey().isBlank()) {
+        ModelService.EffectiveModelConfig modelConfig = modelService.getEffectiveModelConfig(modelId);
+        String apiKey = modelConfig.getApiKey();
+        String baseUrl = modelConfig.getBaseUrl();
+        if (apiKey == null || apiKey.isBlank() || baseUrl == null || baseUrl.isBlank()) {
             return false;
         }
 
@@ -163,9 +162,10 @@ public class ChatStreamService {
         AtomicInteger upstreamTotalTokens = new AtomicInteger(0);
         StringBuilder completionAccumulator = new StringBuilder();
 
+        String uri = baseUrl.endsWith("/") ? baseUrl + "chat/completions" : baseUrl + "/chat/completions";
         List<String> rawLines = webClient.post()
-                .uri(providerCfg.getBaseUrl() + "/chat/completions")
-                .header("Authorization", "Bearer " + providerCfg.getApiKey().trim())
+                .uri(uri)
+                .header("Authorization", "Bearer " + apiKey.trim())
                 .contentType(MediaType.APPLICATION_JSON)
                 .accept(MediaType.TEXT_EVENT_STREAM)
                 .bodyValue(payload)

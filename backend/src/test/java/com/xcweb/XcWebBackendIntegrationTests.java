@@ -281,7 +281,7 @@ class XcWebBackendIntegrationTests {
     }
 
     @Test
-    @DisplayName("5. 管理员接口：预置模型启停与设默认成功，传入自定义 API Key 或非法模型被 400 拒绝")
+    @DisplayName("5. 模型管理：允许所有用户修改内置模型配置、API Key 与端点，严格经用户同意授权后读取系统环境变量")
     void testAdminModelManagementAndSecurityBoundaries() throws Exception {
         String adminToken = loginHelper("admin_test", "AdminTestPassword!2026");
 
@@ -291,7 +291,7 @@ class XcWebBackendIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.models.length()").value(5));
 
-        // 5b. Admin can set glm-4-flash as default model
+        // 5b. Can set glm-4-flash as default model
         mockMvc.perform(put("/api/admin/models/glm-4-flash")
                         .header("Authorization", "Bearer " + adminToken)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -309,34 +309,33 @@ class XcWebBackendIntegrationTests {
                 .andExpect(jsonPath("$.id").value("deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"))
                 .andExpect(jsonPath("$.isDefault").value(true));
 
-        // 5c. Admin attempting to inject custom apiKey or endpoint -> 400 Bad Request
-        mockMvc.perform(put("/api/admin/models/glm-4-flash")
-                        .header("Authorization", "Bearer " + adminToken)
+        // 5c. All users can configure custom apiKey or endpoint for built-in model
+        mockMvc.perform(put("/api/models/glm-4-flash")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(Map.of(
                                 "enabled", true,
-                                "apiKey", "sk-illegal-user-supplied-key"
+                                "apiKey", "sk-user-custom-key-12345678",
+                                "baseUrl", "https://custom-endpoint.example.com/v1"
                         ))))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("FORBIDDEN_MODEL_MUTATION"));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value("glm-4-flash"))
+                .andExpect(jsonPath("$.hasApiKey").value(true));
 
-        mockMvc.perform(put("/api/admin/models/glm-4-flash")
-                        .header("Authorization", "Bearer " + adminToken)
+        // 5d. System environment variable import requires explicit user consent
+        // Without consent -> 400 Bad Request (CONSENT_REQUIRED)
+        mockMvc.perform(post("/api/models/import-env")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of(
-                                "enabled", true,
-                                "endpoint", "https://evil-proxy.example.com/v1"
-                        ))))
+                        .content(objectMapper.writeValueAsString(Map.of("consent", false))))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("FORBIDDEN_MODEL_MUTATION"));
+                .andExpect(jsonPath("$.code").value("CONSENT_REQUIRED"));
 
-        // 5d. Admin attempting to add a non-preset model -> 400 Bad Request
-        mockMvc.perform(put("/api/admin/models/custom-gpt-5-unofficial")
-                        .header("Authorization", "Bearer " + adminToken)
+        // With explicit user consent -> 200 OK
+        mockMvc.perform(post("/api/models/import-env")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of("enabled", true))))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("UNKNOWN_PRESET_MODEL"));
+                        .content(objectMapper.writeValueAsString(Map.of("consent", true))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.consentGranted").value(true));
 
         // 5e. Admin quota overview dashboard
         mockMvc.perform(get("/api/admin/quota/overview")
