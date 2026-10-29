@@ -13,6 +13,7 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Component
@@ -155,15 +156,28 @@ public class DatabaseInitializer implements ApplicationRunner {
         ensureColumnExists("model_states", "api_key", "VARCHAR(255)");
         ensureColumnExists("model_states", "base_url", "VARCHAR(255)");
         ensureColumnExists("model_states", "description", "TEXT");
-        ensureColumnExists("model_states", "supports_thinking", "INTEGER NOT NULL DEFAULT 0");
-        ensureColumnExists("model_states", "is_mock", "INTEGER NOT NULL DEFAULT 0");
+        ensureColumnExists("model_states", "supports_thinking", "INTEGER DEFAULT 0");
+        ensureColumnExists("model_states", "is_mock", "INTEGER DEFAULT 0");
+        ensureColumnExists("model_states", "is_custom", "INTEGER DEFAULT 0");
+        ensureColumnExists("model_states", "deleted", "INTEGER DEFAULT 0");
     }
 
     private void ensureColumnExists(String tableName, String columnName, String columnType) {
         try {
-            jdbcTemplate.execute("ALTER TABLE " + tableName + " ADD COLUMN " + columnName + " " + columnType);
-        } catch (Exception ignored) {
-            // Column already exists or table locked
+            boolean exists = false;
+            List<Map<String, Object>> cols = jdbcTemplate.queryForList("PRAGMA table_info(" + tableName + ")");
+            for (Map<String, Object> col : cols) {
+                if (columnName.equalsIgnoreCase(String.valueOf(col.get("name")))) {
+                    exists = true;
+                    break;
+                }
+            }
+            if (!exists) {
+                jdbcTemplate.execute("ALTER TABLE " + tableName + " ADD COLUMN " + columnName + " " + columnType);
+                log.info("Added column {} to table {}", columnName, tableName);
+            }
+        } catch (Exception e) {
+            log.warn("Failed ensuring column {} on {}: {}", columnName, tableName, e.getMessage());
         }
     }
 

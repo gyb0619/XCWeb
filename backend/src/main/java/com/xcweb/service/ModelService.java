@@ -102,7 +102,7 @@ public class ModelService {
         }
         try {
             List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                    "SELECT api_key FROM model_states WHERE model_id = ?",
+                    "SELECT api_key FROM model_states WHERE model_id = ? AND (deleted IS NULL OR deleted = 0)",
                     modelId
             );
             if (!rows.isEmpty()) {
@@ -158,7 +158,7 @@ public class ModelService {
 
         try {
             List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                    "SELECT name, provider, base_url, api_key, supports_thinking, is_mock FROM model_states WHERE model_id = ?",
+                    "SELECT name, provider, base_url, api_key, supports_thinking, is_mock FROM model_states WHERE model_id = ? AND (deleted IS NULL OR deleted = 0)",
                     targetId
             );
             if (!rows.isEmpty()) {
@@ -206,7 +206,7 @@ public class ModelService {
         Map<String, Map<String, Object>> stateMap = new HashMap<>();
         try {
             List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                    "SELECT model_id, name, provider, base_url, api_key, description, supports_thinking, enabled, is_default, is_mock FROM model_states"
+                    "SELECT model_id, name, provider, base_url, api_key, description, supports_thinking, enabled, is_default, is_mock, COALESCE(deleted, 0) as deleted FROM model_states"
             );
             for (Map<String, Object> row : rows) {
                 stateMap.put(String.valueOf(row.get("model_id")), row);
@@ -221,9 +221,14 @@ public class ModelService {
             presetModels = List.of();
         }
 
-        // Add all preset models
+        // Add all preset models (unless marked as deleted)
         for (XcWebProperties.PresetModel preset : presetModels) {
             Map<String, Object> state = stateMap.get(preset.getId());
+            boolean isDeleted = state != null && state.get("deleted") != null && ((Number) state.get("deleted")).intValue() != 0;
+            if (isDeleted) {
+                continue;
+            }
+
             boolean enabled = state != null && state.get("enabled") != null
                     ? ((Number) state.get("enabled")).intValue() != 0
                     : preset.isEnabled();
@@ -283,12 +288,16 @@ public class ModelService {
             result.add(item);
         }
 
-        // Also add any custom models that exist in SQLite but are not in application.yml
+        // Also add any custom models in SQLite
         for (Map.Entry<String, Map<String, Object>> entry : stateMap.entrySet()) {
             String mid = entry.getKey();
             boolean existsInPreset = presetModels.stream().anyMatch(p -> p.getId().equalsIgnoreCase(mid));
             if (!existsInPreset) {
                 Map<String, Object> s = entry.getValue();
+                boolean isDeleted = s.get("deleted") != null && ((Number) s.get("deleted")).intValue() != 0;
+                if (isDeleted) {
+                    continue;
+                }
                 String rawKey = s.get("api_key") != null ? String.valueOf(s.get("api_key")) : "";
                 boolean isMock = s.get("is_mock") != null && ((Number) s.get("is_mock")).intValue() != 0;
                 Map<String, Object> item = new LinkedHashMap<>();
@@ -319,6 +328,9 @@ public class ModelService {
             if (Boolean.TRUE.equals(m.get("isDefault")) && Boolean.TRUE.equals(m.get("enabled"))) {
                 return String.valueOf(m.get("id"));
             }
+        }
+        if (!all.isEmpty()) {
+            return String.valueOf(all.get(0).get("id"));
         }
         return properties.getLlm().getDefaultModel();
     }
@@ -376,6 +388,134 @@ public class ModelService {
     }
 
     /**
+     * Add a new model (custom or preset revival).
+     */
+    public synchronized Map<String, Object> addModel(Map<String, Object> body) {
+        if (body == null) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "MISSING_PAYLOAD", "请求体不能为空");
+        }
+        Object rawId = body.getOrDefault("id", body.get("modelId"));
+        if (rawId == null || String.valueOf(rawId).trim().isEmpty()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "MISSING_MODEL_ID", "必须提供新增模型的标识 (id 或 modelId)");
+        }
+        String modelId = String.valueOf(rawId).trim();
+        if (modelId.startsWith("/")) {
+            modelId = modelId.substring(1);
+        }
+
+        String name = body.get("name") instanceof String s && !s.isBlank() ? s.trim() : modelId;
+        String provider = body.get("provider") instanceof String s && !s.isBlank() ? s.trim() : "Custom";
+        String baseUrl = body.get("baseUrl") instanceof String s ? s.trim() : (body.get("base_url") instanceof String s2 ? s2.trim() : "");
+        String apiKey = body.get("apiKey") instanceof String s ? s.trim() : (body.get("api_key") instanceof String s2 ? s2.trim() : "");
+        String description = body.get("description") instanceof String s ? s.trim() : "";
+        boolean supportsThinking = Boolean.TRUE.equals(body.get("supportsThinking")) || Boolean.TRUE.equals(body.get("supports_thinking"));
+        boolean enabled = body.get("enabled") != null ? Boolean.TRUE.equals(body.get("enabled")) : true;
+        boolean isDefault = Boolean.TRUE.equals(body.get("isDefault")) || Boolean.TRUE.equals(body.get("default"));
+        boolean isMock = "BuiltInMock".equalsIgnoreCase(provider) || "mock-cognitive-core".equalsIgnoreCase(modelId);
+
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(1) FROM model_states WHERE model_id = ?",
+                Integer.class,
+                modelId
+        );
+
+        if (count != null && count > 0) {
+            jdbcTemplate.update("""
+                UPDATE model_states
+                SET name = ?, provider = ?, base_url = ?,
+                    api_key = CASE WHEN ? != '' AND ? NOT LIKE '%****%' THEN ? ELSE api_key END,
+                    description = ?, supports_thinking = ?, enabled = ?, is_default = ?, is_mock = ?, deleted = 0,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE model_id = ?
+                """,
+                name, provider, baseUrl, apiKey, apiKey, apiKey, description,
+                supportsThinking ? 1 : 0, enabled ? 1 : 0, isDefault ? 1 : 0, isMock ? 1 : 0, modelId
+            );
+        } else {
+            jdbcTemplate.update("""
+                INSERT INTO model_states (model_id, name, provider, base_url, api_key, description, supports_thinking, enabled, is_default, is_mock, deleted)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                """,
+                modelId, name, provider, baseUrl, (apiKey.contains("****") ? "" : apiKey), description,
+                supportsThinking ? 1 : 0, enabled ? 1 : 0, isDefault ? 1 : 0, isMock ? 1 : 0
+            );
+        }
+
+        if (isDefault) {
+            jdbcTemplate.update("UPDATE model_states SET is_default = 0, updated_at = CURRENT_TIMESTAMP WHERE model_id != ?", modelId);
+            jdbcTemplate.update("UPDATE model_states SET is_default = 1, enabled = 1, updated_at = CURRENT_TIMESTAMP WHERE model_id = ?", modelId);
+        }
+
+        for (Map<String, Object> m : getAllPresetModelsWithState(true)) {
+            if (modelId.equalsIgnoreCase(String.valueOf(m.get("id")))) {
+                return m;
+            }
+        }
+
+        Map<String, Object> res = new LinkedHashMap<>();
+        res.put("id", modelId);
+        res.put("name", name);
+        res.put("provider", provider);
+        res.put("enabled", enabled);
+        res.put("isDefault", isDefault);
+        return res;
+    }
+
+    /**
+     * Delete a model (custom or preset).
+     */
+    public synchronized Map<String, Object> deleteModel(String rawModelId) {
+        String targetId = rawModelId;
+        if (targetId != null) {
+            targetId = URLDecoder.decode(targetId, StandardCharsets.UTF_8).trim();
+            if (targetId.startsWith("/")) {
+                targetId = targetId.substring(1);
+            }
+        }
+        if (targetId == null || targetId.isBlank()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "MISSING_MODEL_ID", "删除操作必须提供模型标识 (id 或 modelId)");
+        }
+
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(1) FROM model_states WHERE model_id = ?",
+                Integer.class,
+                targetId
+        );
+
+        if (count == null || count == 0) {
+            XcWebProperties.PresetModel preset = findPresetModel(targetId);
+            jdbcTemplate.update("""
+                INSERT INTO model_states (model_id, name, provider, enabled, is_default, deleted)
+                VALUES (?, ?, ?, 0, 0, 1)
+                """, targetId, preset != null ? preset.getName() : targetId, preset != null ? preset.getProvider() : "Custom");
+        } else {
+            jdbcTemplate.update("UPDATE model_states SET deleted = 1, enabled = 0, is_default = 0, updated_at = CURRENT_TIMESTAMP WHERE model_id = ?", targetId);
+        }
+
+        // Elect a new default if no default remains
+        Integer defaultCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(1) FROM model_states WHERE (deleted IS NULL OR deleted = 0) AND is_default = 1 AND enabled = 1",
+                Integer.class
+        );
+        if (defaultCount == null || defaultCount == 0) {
+            List<String> remaining = jdbcTemplate.queryForList(
+                    "SELECT model_id FROM model_states WHERE (deleted IS NULL OR deleted = 0) AND enabled = 1 LIMIT 1",
+                    String.class
+            );
+            if (!remaining.isEmpty()) {
+                jdbcTemplate.update("UPDATE model_states SET is_default = 1 WHERE model_id = ?", remaining.get(0));
+            }
+        }
+
+        Map<String, Object> res = new LinkedHashMap<>();
+        res.put("success", true);
+        res.put("deletedModelId", targetId);
+        res.put("message", "模型「" + targetId + "」已成功删除");
+        res.put("defaultModel", getDefaultModelId());
+        return res;
+    }
+
+    /**
      * Allows all users to modify built-in models and configure custom endpoints & API keys.
      */
     public synchronized Map<String, Object> updateModelConfig(String rawModelId, Map<String, Object> body) {
@@ -426,7 +566,6 @@ public class ModelService {
             }
         }
 
-        // Verify if row exists
         Integer count = jdbcTemplate.queryForObject(
                 "SELECT COUNT(1) FROM model_states WHERE model_id = ?",
                 Integer.class,
@@ -434,7 +573,6 @@ public class ModelService {
         );
 
         if (count == null || count == 0) {
-            // Insert new model row
             String initialName = newName != null ? newName : (preset != null ? preset.getName() : targetModelId);
             String initialProvider = newProvider != null ? newProvider : (preset != null ? preset.getProvider() : "Custom");
             String initialBaseUrl = newBaseUrl != null ? newBaseUrl : "";
@@ -446,14 +584,14 @@ public class ModelService {
             boolean initialMock = preset != null && preset.isMock();
 
             jdbcTemplate.update("""
-                INSERT INTO model_states (model_id, name, provider, base_url, api_key, description, supports_thinking, enabled, is_default, is_mock)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO model_states (model_id, name, provider, base_url, api_key, description, supports_thinking, enabled, is_default, is_mock, deleted)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
                 """,
                 targetModelId, initialName, initialProvider, initialBaseUrl, initialApiKey, initialDesc,
                 initialThinking ? 1 : 0, initialEnabled ? 1 : 0, initialDefault ? 1 : 0, initialMock ? 1 : 0
             );
         } else {
-            // Update existing row
+            jdbcTemplate.update("UPDATE model_states SET deleted = 0 WHERE model_id = ?", targetModelId);
             if (newName != null && !newName.isBlank()) {
                 jdbcTemplate.update("UPDATE model_states SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE model_id = ?", newName, targetModelId);
             }
@@ -472,7 +610,6 @@ public class ModelService {
             if (enabled != null) {
                 jdbcTemplate.update("UPDATE model_states SET enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE model_id = ?", enabled ? 1 : 0, targetModelId);
             }
-            // Only update API key if not masked and not empty
             if (newApiKey != null && !newApiKey.isBlank() && !newApiKey.contains("****")) {
                 jdbcTemplate.update("UPDATE model_states SET api_key = ?, updated_at = CURRENT_TIMESTAMP WHERE model_id = ?", newApiKey, targetModelId);
             } else if (Boolean.TRUE.equals(body != null ? body.get("clearApiKey") : false)) {
@@ -480,7 +617,6 @@ public class ModelService {
             }
         }
 
-        // Handle default model status
         if (Boolean.TRUE.equals(isDefault)) {
             jdbcTemplate.update("UPDATE model_states SET is_default = 0, updated_at = CURRENT_TIMESTAMP");
             jdbcTemplate.update("UPDATE model_states SET is_default = 1, enabled = 1, updated_at = CURRENT_TIMESTAMP WHERE model_id = ?", targetModelId);
@@ -488,7 +624,6 @@ public class ModelService {
             jdbcTemplate.update("UPDATE model_states SET is_default = 0, updated_at = CURRENT_TIMESTAMP WHERE model_id = ?", targetModelId);
         }
 
-        // Synchronize in-memory provider config if relevant
         if (newProvider != null || (newApiKey != null && !newApiKey.contains("****")) || newBaseUrl != null) {
             String pName = newProvider != null ? newProvider : (preset != null ? preset.getProvider() : null);
             XcWebProperties.ProviderConfig pCfg = getProviderConfig(pName);
@@ -536,11 +671,15 @@ public class ModelService {
         String siliconBaseUrl = env.get("SILICONFLOW_BASE_URL");
         if (siliconKey != null && !siliconKey.isBlank()) {
             detectedVariables.add("SILICONFLOW_API_KEY");
-            int rows = jdbcTemplate.update(
-                    "UPDATE model_states SET api_key = ?, updated_at = CURRENT_TIMESTAMP WHERE provider LIKE '%Silicon%'",
-                    siliconKey.trim()
-            );
-            updatedCount += rows;
+            try {
+                int rows = jdbcTemplate.update(
+                        "UPDATE model_states SET api_key = ?, updated_at = CURRENT_TIMESTAMP WHERE (provider LIKE '%Silicon%' OR model_id LIKE '%deepseek%' OR model_id LIKE '%qwen%')",
+                        siliconKey.trim()
+                );
+                updatedCount += rows;
+            } catch (Exception e) {
+                log.warn("Failed updating siliconflow key in db: {}", e.getMessage());
+            }
             XcWebProperties.ProviderConfig pCfg = getProviderConfig("siliconflow");
             if (pCfg != null) {
                 pCfg.setApiKey(siliconKey.trim());
@@ -548,10 +687,14 @@ public class ModelService {
         }
         if (siliconBaseUrl != null && !siliconBaseUrl.isBlank()) {
             detectedVariables.add("SILICONFLOW_BASE_URL");
-            jdbcTemplate.update(
-                    "UPDATE model_states SET base_url = ?, updated_at = CURRENT_TIMESTAMP WHERE provider LIKE '%Silicon%'",
-                    siliconBaseUrl.trim()
-            );
+            try {
+                jdbcTemplate.update(
+                        "UPDATE model_states SET base_url = ?, updated_at = CURRENT_TIMESTAMP WHERE provider LIKE '%Silicon%'",
+                        siliconBaseUrl.trim()
+                );
+            } catch (Exception e) {
+                log.warn("Failed updating siliconflow baseUrl in db: {}", e.getMessage());
+            }
             XcWebProperties.ProviderConfig pCfg = getProviderConfig("siliconflow");
             if (pCfg != null) {
                 pCfg.setBaseUrl(siliconBaseUrl.trim());
@@ -563,11 +706,15 @@ public class ModelService {
         if (zhipuKey != null && !zhipuKey.isBlank()) {
             String varName = env.containsKey("ZHIPU_API_KEY") ? "ZHIPU_API_KEY" : (env.containsKey("BIGMODEL_API_KEY") ? "BIGMODEL_API_KEY" : "ZHIPUAI_API_KEY");
             detectedVariables.add(varName);
-            int rows = jdbcTemplate.update(
-                    "UPDATE model_states SET api_key = ?, updated_at = CURRENT_TIMESTAMP WHERE model_id = 'glm-4-flash' OR provider LIKE '%Zhipu%' OR provider LIKE '%BigModel%'",
-                    zhipuKey.trim()
-            );
-            updatedCount += rows;
+            try {
+                int rows = jdbcTemplate.update(
+                        "UPDATE model_states SET api_key = ?, updated_at = CURRENT_TIMESTAMP WHERE model_id = 'glm-4-flash' OR provider LIKE '%Zhipu%' OR provider LIKE '%BigModel%'",
+                        zhipuKey.trim()
+                );
+                updatedCount += rows;
+            } catch (Exception e) {
+                log.warn("Failed updating zhipu key in db: {}", e.getMessage());
+            }
             XcWebProperties.ProviderConfig pCfg = getProviderConfig("zhipu");
             if (pCfg != null) {
                 pCfg.setApiKey(zhipuKey.trim());
@@ -578,11 +725,15 @@ public class ModelService {
         String groqKey = env.get("GROQ_API_KEY");
         if (groqKey != null && !groqKey.isBlank()) {
             detectedVariables.add("GROQ_API_KEY");
-            int rows = jdbcTemplate.update(
-                    "UPDATE model_states SET api_key = ?, updated_at = CURRENT_TIMESTAMP WHERE model_id = 'llama-3.3-70b-versatile' OR provider LIKE '%Groq%'",
-                    groqKey.trim()
-            );
-            updatedCount += rows;
+            try {
+                int rows = jdbcTemplate.update(
+                        "UPDATE model_states SET api_key = ?, updated_at = CURRENT_TIMESTAMP WHERE model_id = 'llama-3.3-70b-versatile' OR provider LIKE '%Groq%'",
+                        groqKey.trim()
+                );
+                updatedCount += rows;
+            } catch (Exception e) {
+                log.warn("Failed updating groq key in db: {}", e.getMessage());
+            }
             XcWebProperties.ProviderConfig pCfg = getProviderConfig("groq");
             if (pCfg != null) {
                 pCfg.setApiKey(groqKey.trim());
@@ -594,17 +745,21 @@ public class ModelService {
         String deepseekBaseUrl = env.get("DEEPSEEK_BASE_URL");
         if (deepseekKey != null && !deepseekKey.isBlank()) {
             detectedVariables.add("DEEPSEEK_API_KEY");
-            int rows = jdbcTemplate.update(
-                    "UPDATE model_states SET api_key = ?, updated_at = CURRENT_TIMESTAMP WHERE model_id LIKE '%deepseek%' AND (api_key IS NULL OR api_key = '')",
-                    deepseekKey.trim()
-            );
-            updatedCount += rows;
-            if (deepseekBaseUrl != null && !deepseekBaseUrl.isBlank()) {
-                detectedVariables.add("DEEPSEEK_BASE_URL");
-                jdbcTemplate.update(
-                        "UPDATE model_states SET base_url = ?, updated_at = CURRENT_TIMESTAMP WHERE model_id LIKE '%deepseek%'",
-                        deepseekBaseUrl.trim()
+            try {
+                int rows = jdbcTemplate.update(
+                        "UPDATE model_states SET api_key = ?, updated_at = CURRENT_TIMESTAMP WHERE model_id LIKE '%deepseek%' AND (api_key IS NULL OR api_key = '')",
+                        deepseekKey.trim()
                 );
+                updatedCount += rows;
+                if (deepseekBaseUrl != null && !deepseekBaseUrl.isBlank()) {
+                    detectedVariables.add("DEEPSEEK_BASE_URL");
+                    jdbcTemplate.update(
+                            "UPDATE model_states SET base_url = ?, updated_at = CURRENT_TIMESTAMP WHERE model_id LIKE '%deepseek%'",
+                            deepseekBaseUrl.trim()
+                    );
+                }
+            } catch (Exception e) {
+                log.warn("Failed updating deepseek key in db: {}", e.getMessage());
             }
         }
 

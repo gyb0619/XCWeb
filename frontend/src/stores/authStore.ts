@@ -98,9 +98,8 @@ export const useAuthStore = defineStore('auth', () => {
           const quotaStore = useQuotaStore()
           quotaStore.applyQuotaStatus(me.quota)
         } catch {
-          // 保持本地缓存态并拉取配额
-          const quotaStore = useQuotaStore()
-          await quotaStore.fetchQuotaStatus()
+          persistAuthState('', null)
+          await loginAsGuest(true)
         }
       } else {
         await loginAsGuest(true)
@@ -304,6 +303,10 @@ export const useAuthStore = defineStore('auth', () => {
 
   function handleUnauthorized(reason?: string) {
     authError.value = reason || '登录状态已失效，请重新认证'
+    if (token.value) {
+      persistAuthState('', null)
+      void loginAsGuest(true)
+    }
   }
 
   return {

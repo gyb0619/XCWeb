@@ -46,6 +46,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         String token = authHeader.substring(7).trim();
         AuthPrincipal principal = tokenService.parseAndVerify(token);
         if (principal == null) {
+            if (isPublicPath(request.getRequestURI())) {
+                filterChain.doFilter(request, response);
+                return;
+            }
             writeErrorResponse(response, HttpServletResponse.SC_UNAUTHORIZED, "INVALID_TOKEN", "身份令牌无效、被篡改或已过期");
             return;
         }
@@ -54,6 +58,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             String requestFingerprint = request.getHeader("X-Fingerprint");
             if (requestFingerprint == null || requestFingerprint.isBlank()
                     || !requestFingerprint.trim().equals(principal.fingerprintHash())) {
+                if (isPublicPath(request.getRequestURI())) {
+                    filterChain.doFilter(request, response);
+                    return;
+                }
                 writeErrorResponse(response, HttpServletResponse.SC_FORBIDDEN, "FINGERPRINT_MISMATCH",
                         "游客身份三重校验失败：请求头 X-Fingerprint 与匿名令牌内指纹不一致");
                 return;
@@ -64,6 +72,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     principal.guestId()
             );
             if (rows.isEmpty()) {
+                if (isPublicPath(request.getRequestURI())) {
+                    filterChain.doFilter(request, response);
+                    return;
+                }
                 writeErrorResponse(response, HttpServletResponse.SC_UNAUTHORIZED, "GUEST_SESSION_NOT_FOUND",
                         "游客会话不存在或已失效");
                 return;
@@ -74,6 +86,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             boolean revoked = revokedNum != null && revokedNum.intValue() != 0;
 
             if (revoked || !dbFp.equals(principal.fingerprintHash())) {
+                if (isPublicPath(request.getRequestURI())) {
+                    filterChain.doFilter(request, response);
+                    return;
+                }
                 writeErrorResponse(response, HttpServletResponse.SC_FORBIDDEN, "GUEST_SESSION_REVOKED",
                         "游客会话已被吊销或设备指纹异常");
                 return;
@@ -92,6 +108,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         );
         SecurityContextHolder.getContext().setAuthentication(authentication);
         filterChain.doFilter(request, response);
+    }
+
+    private boolean isPublicPath(String uri) {
+        if (uri == null) return false;
+        return uri.startsWith("/api/models") || uri.startsWith("/api/auth/");
     }
 
     private void writeErrorResponse(HttpServletResponse response, int status, String code, String message) throws IOException {

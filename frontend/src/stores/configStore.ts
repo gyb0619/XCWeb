@@ -328,19 +328,46 @@ export const useConfigStore = defineStore('config', () => {
     return allManageableModels.value
   }
 
-  async function updateModelConfig(payload: ModelUpdatePayload): Promise<AdminModelInfo | null> {
-    const targetId = payload.id || payload.modelId || ''
+  async function addModel(payload: ModelUpdatePayload): Promise<AdminModelInfo | null> {
     try {
-      const updated = await apiRequest<AdminModelInfo>(
-        `/api/models/${encodeURIComponent(targetId)}`,
+      const added = await apiRequest<AdminModelInfo>('/api/models', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      })
+      await fetchModels()
+      await fetchManageableModels()
+      return added
+    } catch (e) {
+      throw e
+    }
+  }
+
+  async function updateModelConfig(payload: ModelUpdatePayload): Promise<AdminModelInfo | null> {
+    try {
+      const updated = await apiRequest<AdminModelInfo>('/api/models', {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      })
+      await fetchModels()
+      await fetchManageableModels()
+      return updated
+    } catch (e) {
+      throw e
+    }
+  }
+
+  async function deleteModel(modelId: string): Promise<boolean> {
+    try {
+      await apiRequest<{ success?: boolean }>(
+        `/api/models?id=${encodeURIComponent(modelId)}`,
         {
-          method: 'PUT',
-          body: JSON.stringify(payload),
+          method: 'DELETE',
+          body: JSON.stringify({ id: modelId }),
         },
       )
       await fetchModels()
       await fetchManageableModels()
-      return updated
+      return true
     } catch (e) {
       throw e
     }
@@ -388,7 +415,9 @@ export const useConfigStore = defineStore('config', () => {
     registerThemeSweepHandler,
     fetchModels,
     fetchManageableModels,
+    addModel,
     updateModelConfig,
+    deleteModel,
     importEnvConfig,
     selectModel,
     updateSettings,

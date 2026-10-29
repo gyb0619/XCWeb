@@ -337,7 +337,35 @@ class XcWebBackendIntegrationTests {
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.consentGranted").value(true));
 
-        // 5e. Admin quota overview dashboard
+        // 5e. Add, Manage, and Delete Model capabilities
+        mockMvc.perform(get("/api/models/manage"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.models").isArray());
+
+        // Add model
+        mockMvc.perform(post("/api/models")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "id", "custom-model-qa-test",
+                                "name", "Custom QA Model",
+                                "provider", "Custom",
+                                "baseUrl", "https://api.test.com/v1",
+                                "apiKey", "sk-custom-qa-key-123"
+                        ))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value("custom-model-qa-test"));
+
+        // Delete model
+        mockMvc.perform(delete("/api/models?id=custom-model-qa-test"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true));
+
+        // Public /api/models succeeds even if client sends stale/invalid token
+        mockMvc.perform(get("/api/models")
+                        .header("Authorization", "Bearer invalid_stale_token_test"))
+                .andExpect(status().isOk());
+
+        // 5f. Admin quota overview dashboard
         mockMvc.perform(get("/api/admin/quota/overview")
                         .header("Authorization", "Bearer " + adminToken))
                 .andExpect(status().isOk())

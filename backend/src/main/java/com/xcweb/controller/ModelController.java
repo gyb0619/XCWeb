@@ -1,6 +1,7 @@
 package com.xcweb.controller;
 
 import com.xcweb.service.ModelService;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -32,6 +33,11 @@ public class ModelController {
         return modelService.getAdminModelsResponse();
     }
 
+    @PostMapping
+    public Map<String, Object> addModel(@RequestBody Map<String, Object> body) {
+        return modelService.addModel(body);
+    }
+
     @PutMapping
     public Map<String, Object> updateModel(@RequestBody Map<String, Object> body) {
         return modelService.updateModelConfig(null, body);
@@ -41,6 +47,24 @@ public class ModelController {
     public Map<String, Object> updateModelById(@PathVariable("modelId") String modelId,
                                                @RequestBody(required = false) Map<String, Object> body) {
         return modelService.updateModelConfig(modelId, body);
+    }
+
+    @DeleteMapping
+    public Map<String, Object> deleteModelByQueryOrBody(@RequestParam(value = "id", required = false) String idParam,
+                                                        @RequestBody(required = false) Map<String, Object> body) {
+        String targetId = idParam;
+        if ((targetId == null || targetId.isBlank()) && body != null) {
+            Object fromBody = body.getOrDefault("id", body.get("modelId"));
+            if (fromBody != null) {
+                targetId = String.valueOf(fromBody);
+            }
+        }
+        return modelService.deleteModel(targetId);
+    }
+
+    @DeleteMapping("/{*modelId}")
+    public Map<String, Object> deleteModelByPath(@PathVariable("modelId") String modelId) {
+        return modelService.deleteModel(modelId);
     }
 
     @PostMapping("/import-env")

@@ -15,6 +15,8 @@ import {
   Sparkles,
   HelpCircle,
   Save,
+  Plus,
+  Trash2,
 } from 'lucide-vue-next'
 import { useConfigStore } from '@/stores/configStore'
 import type { AdminModelInfo, ImportEnvResponse } from '@/types/api'
@@ -28,6 +30,27 @@ const envFeedback = ref<{
   message: string
   variables?: string[]
 } | null>(null)
+
+// 新增模型表单状态
+const isAddingModel = ref<boolean>(false)
+const newModel = ref({
+  id: '',
+  name: '',
+  provider: 'SiliconFlow',
+  baseUrl: '',
+  apiKey: '',
+  description: '',
+  supportsThinking: false,
+  enabled: true,
+  isDefault: false,
+  showKeyPlain: false,
+  isSubmitting: false,
+  error: null as string | null,
+})
+
+// 删除模型二次确认状态
+const modelToDelete = ref<AdminModelInfo | null>(null)
+const isDeleting = ref<boolean>(false)
 
 // 编辑中的模型草稿缓存，key 为 modelId
 interface EditFormState {
@@ -99,7 +122,6 @@ async function handleConfirmImportEnv() {
         message: res.message,
         variables: res.detectedVariables,
       }
-      // 刷新草稿状态
       initDrafts(configStore.allManageableModels)
     } else {
       envFeedback.value = {
@@ -115,6 +137,93 @@ async function handleConfirmImportEnv() {
     }
   } finally {
     isLoading.value = false
+  }
+}
+
+// 新增模型
+async function handleCreateModel() {
+  const targetId = newModel.value.id.trim()
+  if (!targetId) {
+    newModel.value.error = '模型标识 (ID) 不能为空'
+    return
+  }
+
+  newModel.value.isSubmitting = true
+  newModel.value.error = null
+
+  try {
+    const payload = {
+      id: targetId,
+      name: newModel.value.name.trim() || targetId,
+      provider: newModel.value.provider.trim() || 'Custom',
+      baseUrl: newModel.value.baseUrl.trim(),
+      apiKey: newModel.value.apiKey.trim(),
+      description: newModel.value.description.trim(),
+      supportsThinking: newModel.value.supportsThinking,
+      enabled: newModel.value.enabled,
+      isDefault: newModel.value.isDefault,
+    }
+
+    const added = await configStore.addModel(payload)
+    if (added) {
+      editDrafts.value[added.id] = {
+        name: added.name || added.id,
+        provider: added.provider || 'Custom',
+        baseUrl: added.baseUrl || '',
+        apiKey: added.apiKey || '',
+        description: added.description || '',
+        supportsThinking: Boolean(added.supportsThinking),
+        enabled: Boolean(added.enabled),
+        isDefault: Boolean(added.isDefault),
+        showKeyPlain: false,
+        isSaving: false,
+        saveMessage: null,
+      }
+    }
+
+    isAddingModel.value = false
+    newModel.value = {
+      id: '',
+      name: '',
+      provider: 'SiliconFlow',
+      baseUrl: '',
+      apiKey: '',
+      description: '',
+      supportsThinking: false,
+      enabled: true,
+      isDefault: false,
+      showKeyPlain: false,
+      isSubmitting: false,
+      error: null,
+    }
+  } catch (err: unknown) {
+    const error = err as Error
+    newModel.value.error = error.message || '新增模型失败'
+  } finally {
+    newModel.value.isSubmitting = false
+  }
+}
+
+// 触发删除确认
+function requestDeleteModel(model: AdminModelInfo) {
+  modelToDelete.value = model
+}
+
+// 确认删除模型
+async function handleConfirmDelete() {
+  if (!modelToDelete.value) return
+  isDeleting.value = true
+  const id = modelToDelete.value.id
+
+  try {
+    await configStore.deleteModel(id)
+    delete editDrafts.value[id]
+    modelToDelete.value = null
+  } catch (err: unknown) {
+    const error = err as Error
+    alert(`删除模型失败: ${error.message || '网络异常'}`)
+  } finally {
+    isDeleting.value = false
   }
 }
 
@@ -167,7 +276,6 @@ async function handleSetDefault(model: AdminModelInfo) {
   if (!draft) return
   draft.isDefault = true
   draft.enabled = true
-  // 将其他模型的 isDefault 草稿设为 false
   for (const [key, d] of Object.entries(editDrafts.value)) {
     if (key !== model.id) {
       d.isDefault = false
@@ -201,11 +309,11 @@ async function handleSetDefault(model: AdminModelInfo) {
               <span
                 class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyber-cyan/15 text-cyber-cyan border border-cyber-cyan/30"
               >
-                全部用户开放修改
+                支持新增/删除/修改
               </span>
             </h2>
             <p class="text-xs text-muted">
-              自由编辑内置模型名称、API Key、端点 URL，或经您授权后自动导入本地系统环境变量
+              自由新增模型、删除模型、配置 API Key 与接口端点，或经授权自动读取本地系统环境变量
             </p>
           </div>
         </div>
@@ -328,23 +436,198 @@ async function handleSetDefault(model: AdminModelInfo) {
           </div>
         </div>
 
+        <!-- 新增模型卡片展开区域 -->
+        <div
+          v-if="isAddingModel"
+          class="p-4 sm:p-5 rounded-2xl bg-card border border-primary/50 shadow-2xl space-y-4 animate-slide-up"
+        >
+          <div class="flex items-center justify-between pb-2 border-b border-subtle">
+            <h4 class="text-xs font-bold text-main flex items-center gap-1.5">
+              <Plus class="w-4 h-4 text-primary-light" />
+              <span>新增模型配置</span>
+            </h4>
+            <button
+              type="button"
+              class="text-muted hover:text-main"
+              @click="isAddingModel = false"
+            >
+              <X class="w-4 h-4" />
+            </button>
+          </div>
+
+          <div
+            v-if="newModel.error"
+            class="p-2.5 rounded-xl bg-red-500/15 border border-red-500/40 text-red-400 text-xs"
+          >
+            {{ newModel.error }}
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+            <div class="space-y-1">
+              <label class="text-sub font-medium">模型标识 (Model ID / 模型代号) *</label>
+              <input
+                v-model="newModel.id"
+                type="text"
+                placeholder="例如：gpt-4o 或 deepseek-chat"
+                class="w-full px-3 py-2 rounded-xl bg-elevated border border-subtle text-main focus:border-primary/60 focus:outline-none font-mono text-xs"
+              />
+            </div>
+            <div class="space-y-1">
+              <label class="text-sub font-medium">显示名称 (Name)</label>
+              <input
+                v-model="newModel.name"
+                type="text"
+                placeholder="例如：GPT-4o 旗舰模型"
+                class="w-full px-3 py-2 rounded-xl bg-elevated border border-subtle text-main focus:border-primary/60 focus:outline-none"
+              />
+            </div>
+            <div class="space-y-1">
+              <label class="text-sub font-medium">服务商 (Provider)</label>
+              <input
+                v-model="newModel.provider"
+                type="text"
+                placeholder="OpenAI, SiliconFlow, DeepSeek, ZhipuAI, Groq, Custom..."
+                class="w-full px-3 py-2 rounded-xl bg-elevated border border-subtle text-main focus:border-primary/60 focus:outline-none"
+              />
+            </div>
+            <div class="space-y-1">
+              <label class="text-sub font-medium">接口地址 (Base URL)</label>
+              <input
+                v-model="newModel.baseUrl"
+                type="text"
+                placeholder="https://api.openai.com/v1"
+                class="w-full px-3 py-2 rounded-xl bg-elevated border border-subtle text-main focus:border-primary/60 focus:outline-none font-mono text-xs"
+              />
+            </div>
+            <div class="space-y-1 sm:col-span-2">
+              <label class="text-sub font-medium">API 密钥 (API Key)</label>
+              <div class="relative flex items-center">
+                <input
+                  v-model="newModel.apiKey"
+                  :type="newModel.showKeyPlain ? 'text' : 'password'"
+                  placeholder="请输入 sk- 开头的 API Key (可选)"
+                  class="w-full pl-3 pr-10 py-2 rounded-xl bg-elevated border border-subtle text-main focus:border-primary/60 focus:outline-none font-mono text-xs"
+                />
+                <button
+                  type="button"
+                  class="absolute right-2.5 p-1 text-muted hover:text-main"
+                  @click="newModel.showKeyPlain = !newModel.showKeyPlain"
+                >
+                  <EyeOff v-if="newModel.showKeyPlain" class="w-4 h-4" />
+                  <Eye v-else class="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+            <div class="space-y-1 sm:col-span-2">
+              <label class="text-sub font-medium">模型描述 (Description)</label>
+              <input
+                v-model="newModel.description"
+                type="text"
+                placeholder="请输入模型简要说明..."
+                class="w-full px-3 py-2 rounded-xl bg-elevated border border-subtle text-main focus:border-primary/60 focus:outline-none"
+              />
+            </div>
+            <div class="sm:col-span-2 flex items-center justify-between pt-1">
+              <div class="flex items-center gap-4">
+                <label class="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    v-model="newModel.supportsThinking"
+                    type="checkbox"
+                    class="rounded bg-elevated border-subtle text-primary focus:ring-primary w-4 h-4"
+                  />
+                  <span>支持深度思考思维链</span>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    v-model="newModel.isDefault"
+                    type="checkbox"
+                    class="rounded bg-elevated border-subtle text-primary focus:ring-primary w-4 h-4"
+                  />
+                  <span>设为默认模型</span>
+                </label>
+              </div>
+              <div class="flex items-center gap-2">
+                <button
+                  type="button"
+                  class="px-3 py-1.5 rounded-xl border border-subtle hover:bg-elevated text-sub hover:text-main"
+                  @click="isAddingModel = false"
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  class="cyber-btn-primary px-4 py-1.5 rounded-xl font-semibold shadow-cyber-glow flex items-center gap-1.5"
+                  :disabled="newModel.isSubmitting"
+                  @click="handleCreateModel"
+                >
+                  <RefreshCw v-if="newModel.isSubmitting" class="w-3.5 h-3.5 animate-spin" />
+                  <span>确认添加</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 删除二次确认弹窗 -->
+        <div
+          v-if="modelToDelete"
+          class="p-4 rounded-2xl bg-card border border-red-500/50 shadow-2xl space-y-3 animate-slide-up"
+        >
+          <div class="flex items-start gap-2.5 text-red-400">
+            <Trash2 class="w-5 h-5 shrink-0 mt-0.5" />
+            <div class="space-y-1 text-xs">
+              <p class="font-bold text-sm">确认删除模型「{{ modelToDelete.name }}」？</p>
+              <p class="text-muted leading-relaxed">
+                模型标识：<code class="font-mono text-main">{{ modelToDelete.id }}</code>。删除后将从模型列表与对话选择器中完全移除。如需重新使用可在稍后重新添加。
+              </p>
+            </div>
+          </div>
+          <div class="flex items-center justify-end gap-2 pt-1">
+            <button
+              type="button"
+              class="px-3 py-1.5 rounded-lg border border-subtle text-xs text-sub hover:text-main hover:bg-elevated transition-colors"
+              @click="modelToDelete = null"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-red-600 hover:bg-red-500 text-white transition-colors shadow-lg"
+              :disabled="isDeleting"
+              @click="handleConfirmDelete"
+            >
+              {{ isDeleting ? '正在删除...' : '确认删除' }}
+            </button>
+          </div>
+        </div>
+
         <!-- 模型列表配置表格/卡片集 -->
         <div class="space-y-4">
           <div class="flex items-center justify-between">
             <h3 class="text-sm font-bold text-main flex items-center gap-2">
-              <span>内置与自定义模型库</span>
+              <span>模型库列表</span>
               <span class="text-xs font-mono text-muted">
                 ({{ configStore.allManageableModels.length }} 个模型)
               </span>
             </h3>
-            <button
-              type="button"
-              class="text-xs text-sub hover:text-main flex items-center gap-1"
-              @click="loadData"
-            >
-              <RefreshCw class="w-3 h-3" :class="isLoading ? 'animate-spin' : ''" />
-              <span>刷新列表</span>
-            </button>
+            <div class="flex items-center gap-2">
+              <button
+                type="button"
+                class="cyber-btn-primary px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-cyber-glow"
+                @click="isAddingModel = !isAddingModel"
+              >
+                <Plus class="w-3.5 h-3.5" />
+                <span>新增模型</span>
+              </button>
+              <button
+                type="button"
+                class="text-xs text-sub hover:text-main flex items-center gap-1 px-2.5 py-1.5 rounded-xl glass-panel"
+                @click="loadData"
+              >
+                <RefreshCw class="w-3 h-3" :class="isLoading ? 'animate-spin' : ''" />
+                <span>刷新</span>
+              </button>
+            </div>
           </div>
 
           <div class="space-y-4">
@@ -416,6 +699,16 @@ async function handleSetDefault(model: AdminModelInfo) {
                     @click="handleToggleEnabled(model)"
                   >
                     {{ editDrafts[model.id]?.enabled ? '已启用' : '已停用' }}
+                  </button>
+
+                  <!-- 删除模型按钮 -->
+                  <button
+                    type="button"
+                    class="p-1.5 rounded-lg text-muted hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                    title="删除此模型"
+                    @click="requestDeleteModel(model)"
+                  >
+                    <Trash2 class="w-4 h-4" />
                   </button>
                 </div>
               </div>

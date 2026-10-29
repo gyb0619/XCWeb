@@ -14,7 +14,6 @@ import { useConfigStore } from '@/stores/configStore'
 import { apiRequest } from '@/utils/apiClient'
 import type {
   AdminModelInfo,
-  AdminModelUpdatePayload,
   QuotaOverview,
 } from '@/types/api'
 
@@ -85,14 +84,15 @@ async function fetchAdminData() {
 
 async function handleToggleModelEnabled(model: AdminModelInfo) {
   const nextEnabled = !model.enabled
-  const payload: AdminModelUpdatePayload = {
+  const payload = {
+    id: model.id,
     modelId: model.id,
     enabled: nextEnabled,
     isDefault: model.isDefault,
   }
 
   try {
-    await apiRequest<unknown>(`/api/admin/models/${encodeURIComponent(model.id)}`, {
+    await apiRequest<unknown>('/api/admin/models', {
       method: 'PUT',
       body: JSON.stringify(payload),
     })
@@ -107,14 +107,15 @@ async function handleToggleModelEnabled(model: AdminModelInfo) {
 }
 
 async function handleSetDefaultModel(model: AdminModelInfo) {
-  const payload: AdminModelUpdatePayload = {
+  const payload = {
+    id: model.id,
     modelId: model.id,
     enabled: true,
     isDefault: true,
   }
 
   try {
-    await apiRequest<unknown>(`/api/admin/models/${encodeURIComponent(model.id)}`, {
+    await apiRequest<unknown>('/api/admin/models', {
       method: 'PUT',
       body: JSON.stringify(payload),
     })
