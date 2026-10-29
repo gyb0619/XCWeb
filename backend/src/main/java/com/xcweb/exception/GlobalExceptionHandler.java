@@ -10,9 +10,13 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     @ExceptionHandler(ContextTooLongException.class)
     public ResponseEntity<Map<String, Object>> handleContextTooLong(ContextTooLongException ex) {
@@ -65,6 +69,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleGeneralException(Exception ex) {
+        log.error("Internal Server Error caught by GlobalExceptionHandler: ", ex);
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("code", "INTERNAL_ERROR");
         body.put("message", ex.getMessage() != null ? ex.getMessage() : "服务器内部异常");

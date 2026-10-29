@@ -7,13 +7,13 @@ spring:
   main:
     web-application-type: servlet
   datasource:
-    url: jdbc:sqlite:${XCWEB_DB_PATH:xcweb.db}?journal_mode=WAL&busy_timeout=5000&foreign_keys=ON
+    url: jdbc:sqlite:${XCWEB_DB_PATH:xcweb.db}?journal_mode=WAL&busy_timeout=30000&foreign_keys=ON
     driver-class-name: org.sqlite.JDBC
     hikari:
       maximum-pool-size: 1
       minimum-idle: 1
-      connection-timeout: 10000
-      connection-init-sql: PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;
+      connection-timeout: 30000
+      connection-init-sql: PRAGMA journal_mode=WAL; PRAGMA busy_timeout=30000; PRAGMA foreign_keys=ON;
 
 xcweb:
   timezone: ${XCWEB_TIMEZONE:Asia/Shanghai}

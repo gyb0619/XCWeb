@@ -44,7 +44,7 @@ public class DatabaseInitializer implements ApplicationRunner {
 
     public void initPragmasAndTables() {
         jdbcTemplate.execute("PRAGMA journal_mode=WAL;");
-        jdbcTemplate.execute("PRAGMA busy_timeout=5000;");
+        jdbcTemplate.execute("PRAGMA busy_timeout=30000;");
         jdbcTemplate.execute("PRAGMA foreign_keys=ON;");
 
         try {

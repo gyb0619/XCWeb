@@ -17,6 +17,7 @@ import {
   Save,
   Plus,
   Trash2,
+  RotateCcw,
 } from 'lucide-vue-next'
 import { useConfigStore } from '@/stores/configStore'
 import type { AdminModelInfo, ImportEnvResponse } from '@/types/api'
@@ -224,6 +225,22 @@ async function handleConfirmDelete() {
     alert(`删除模型失败: ${error.message || '网络异常'}`)
   } finally {
     isDeleting.value = false
+  }
+}
+
+// 恢复系统预置模型
+const isRestoring = ref<boolean>(false)
+async function handleRestorePresets() {
+  if (!confirm('确定要恢复所有系统内置默认预置模型吗？已自定义的同名模型配置将被重置为可用状态。')) return
+  isRestoring.value = true
+  try {
+    await configStore.restorePresetModels()
+    await loadData()
+  } catch (err: unknown) {
+    const error = err as Error
+    alert(`恢复预设模型失败: ${error.message || '网络异常'}`)
+  } finally {
+    isRestoring.value = false
   }
 }
 
@@ -611,6 +628,16 @@ async function handleSetDefault(model: AdminModelInfo) {
               </span>
             </h3>
             <div class="flex items-center gap-2">
+              <button
+                type="button"
+                class="px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 border border-cyber-cyan/30 bg-cyber-cyan/10 hover:bg-cyber-cyan/20 text-cyber-cyan transition-colors"
+                title="恢复系统内置的所有预设主力模型"
+                :disabled="isRestoring"
+                @click="handleRestorePresets"
+              >
+                <RotateCcw class="w-3.5 h-3.5" :class="isRestoring ? 'animate-spin' : ''" />
+                <span>恢复预设模型</span>
+              </button>
               <button
                 type="button"
                 class="cyber-btn-primary px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-cyber-glow"

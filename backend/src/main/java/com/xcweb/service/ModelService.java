@@ -515,6 +515,16 @@ public class ModelService {
         return res;
     }
 
+    public synchronized Map<String, Object> restorePresetModels() {
+        List<XcWebProperties.PresetModel> list = properties.getLlm().getModels();
+        if (list != null) {
+            for (XcWebProperties.PresetModel m : list) {
+                jdbcTemplate.update("UPDATE model_states SET deleted = 0, enabled = 1 WHERE model_id = ?", m.getId());
+            }
+        }
+        return getAdminModelsResponse();
+    }
+
     /**
      * Allows all users to modify built-in models and configure custom endpoints & API keys.
      */

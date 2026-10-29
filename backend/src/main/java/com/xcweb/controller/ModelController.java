@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -65,6 +66,11 @@ public class ModelController {
     @DeleteMapping("/{*modelId}")
     public Map<String, Object> deleteModelByPath(@PathVariable("modelId") String modelId) {
         return modelService.deleteModel(modelId);
+    }
+
+    @PostMapping("/restore-presets")
+    public Map<String, Object> restorePresetModels() {
+        return modelService.restorePresetModels();
     }
 
     @PostMapping("/import-env")

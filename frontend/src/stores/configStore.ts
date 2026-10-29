@@ -314,18 +314,15 @@ export const useConfigStore = defineStore('config', () => {
     try {
       const res = await apiRequest<{ models?: AdminModelInfo[] } | AdminModelInfo[]>('/api/models/manage')
       const list = Array.isArray(res) ? res : (res.models ?? [])
-      if (list.length > 0) {
-        allManageableModels.value = list
-        return list
-      }
+      allManageableModels.value = list
+      return list
     } catch {
-      // fallback
+      allManageableModels.value = models.value.map((m) => ({
+        ...m,
+        keyConfigured: Boolean(m.keyConfigured ?? m.isMock),
+      }))
+      return allManageableModels.value
     }
-    allManageableModels.value = models.value.map((m) => ({
-      ...m,
-      keyConfigured: Boolean(m.keyConfigured ?? m.isMock),
-    }))
-    return allManageableModels.value
   }
 
   async function addModel(payload: ModelUpdatePayload): Promise<AdminModelInfo | null> {
@@ -368,6 +365,16 @@ export const useConfigStore = defineStore('config', () => {
       await fetchModels()
       await fetchManageableModels()
       return true
+    } catch (e) {
+      throw e
+    }
+  }
+
+  async function restorePresetModels(): Promise<AdminModelInfo[]> {
+    try {
+      await apiRequest('/api/models/restore-presets', { method: 'POST' })
+      await fetchModels()
+      return await fetchManageableModels()
     } catch (e) {
       throw e
     }
@@ -418,6 +425,7 @@ export const useConfigStore = defineStore('config', () => {
     addModel,
     updateModelConfig,
     deleteModel,
+    restorePresetModels,
     importEnvConfig,
     selectModel,
     updateSettings,
