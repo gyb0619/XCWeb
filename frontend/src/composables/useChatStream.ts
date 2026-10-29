@@ -11,7 +11,6 @@ import type {
 } from '@/types/api'
 import { buildAuthHeaders, handleHttpErrorResponse } from '@/utils/apiClient'
 import { useQuotaStore } from '@/stores/quotaStore'
-import { useClientRAG } from '@/composables/useClientRAG'
 
 /**
  * 客户端 <think>...</think> 标签流式剥离状态机
@@ -110,7 +109,6 @@ export function createThinkTagNormalizer(): ThinkStreamNormalizer {
 export function useChatStream() {
   const isStreaming = ref<boolean>(false)
   const streamError = ref<string | null>(null)
-  const clientRag = useClientRAG()
 
   /**
    * 核心 SSE 流式对话执行器（挂载至 chatStore.registerCustomStreamExecutor）
@@ -125,15 +123,6 @@ export function useChatStream() {
     streamError.value = null
 
     const startTime = performance.now()
-    const lastUserMessage =
-      req.messages[req.messages.length - 1]?.content || '分析请求'
-
-    // 若本地挂载了 RAG 知识库文档，使用 BM25 + 向量余弦相似度混合检索更新 Top-3 上下文
-    const hybridRagChunks = clientRag.retrieveTopChunks(lastUserMessage, 3)
-    if (hybridRagChunks.length > 0) {
-      req.ragContext = hybridRagChunks
-      assistantMsg.ragCitations = hybridRagChunks
-    }
 
     const headers = await buildAuthHeaders({
       'Content-Type': 'application/json',
@@ -253,17 +242,6 @@ export function useChatStream() {
 
       assistantMsg.isThinking = false
       assistantMsg.isStreaming = false
-
-      // 若回答正文中出现了【引用来源 [1]】但 ragCitations 尚未挂载，自动绑定匹配切片
-      if (
-        /引用来源|\[\d+\]/.test(assistantMsg.content) &&
-        (!assistantMsg.ragCitations || assistantMsg.ragCitations.length === 0)
-      ) {
-        assistantMsg.ragCitations = clientRag.ensureDemoCitationsForQuery(
-          lastUserMessage,
-          3,
-        )
-      }
 
       quotaStore.recordCallAndTokens(
         assistantMsg.usage?.totalTokens ?? 0,
@@ -470,12 +448,7 @@ export function useChatStream() {
     assistantMsg.fallbackReason = 'OFFLINE_OR_NO_API_KEY'
     assistantMsg.model = req.model || 'deepseek-ai/DeepSeek-R1-Distill-Qwen-7B'
 
-    // 确保挂载端侧 RAG 引用切片，使回答中的【引用来源 [1]】【引用来源 [2]】可点击预览原文
-    const ragCitations =
-      req.ragContext && req.ragContext.length > 0
-        ? req.ragContext
-        : clientRag.ensureDemoCitationsForQuery(userPrompt, 3)
-    assistantMsg.ragCitations = ragCitations
+    assistantMsg.ragCitations = []
 
     // 2. 推送 4 阶段 Agent 可视化思考时间轴（规划 -> 工具调用 -> 数据回传 -> 总结分析）
     const toolMeta = selectAllowlistTool(userPrompt)
@@ -485,9 +458,9 @@ export function useChatStream() {
         phase: 'plan',
         title: '规划 (Plan) · 意图拆解',
         toolName: 'planner',
-        input: `用户指令：「${userPrompt.slice(0, 60)}」\n启用深度思考：${req.enableThinking ? '是' : '否'} | 端侧 RAG 切片数：${ragCitations.length}`,
+        input: `用户指令：「${userPrompt.slice(0, 60)}」\n启用深度思考：${req.enableThinking ? '是' : '否'}`,
         output:
-          '制定 4 步执行计划：① 解析核心问题拓扑 → ② 调用服务端白名单工具采集指标 → ③ 融合端侧 RAG 切片 [1][2] 校验 → ④ 生成结构化对比表格与结论',
+          '制定 4 步执行计划：① 解析核心问题拓扑 → ② 调用服务端白名单工具采集指标 → ③ 验证状态机与参数空间 → ④ 生成结构化对比表格与结论',
         durationMs: 86,
       },
       {
@@ -503,9 +476,9 @@ export function useChatStream() {
         stepId: 'step_obs_3',
         phase: 'observation',
         title: '数据回传 (Data Return)',
-        toolName: 'rag_context_merger',
-        input: `合并工具回传数据与端侧 BM25/向量检索 Top-${ragCitations.length} 切片（最高匹配度 ${Math.round((ragCitations[0]?.score ?? 0.94) * 100)}%）`,
-        output: `已完成交叉验证，锁定原文锚点：【引用来源 [1]】(${ragCitations[0]?.docName || 'XCWeb_Whitepaper.md'}) 与 【引用来源 [2]】`,
+        toolName: 'context_merger',
+        input: `合并工具回传数据与系统状态，完成技术指标校验`,
+        output: `状态机交叉验证完成，已锁定结构化对比关键维度`,
         durationMs: 68,
       },
       {
@@ -546,10 +519,10 @@ export function useChatStream() {
 
     const thoughtSegments = [
       `正在深度拆解用户提问：「${userPrompt.slice(0, 42)}」...\n`,
-      `1. [意图与上下文对齐]：识别到核心技术诉求，已从浏览器端侧内存索引中检索出 ${ragCitations.length} 个高相关知识切片（Top-1 相似度 ${((ragCitations[0]?.score ?? 0.95) * 100).toFixed(0)}%）。\n`,
+      `1. [意图与上下文对齐]：识别到核心技术诉求，已完成问题拓扑与多维对比参数校验。\n`,
       `2. [架构与推理范式对比]：对比传统单轮套壳 Web 应用与 XCWeb 2026 AI-Native 架构在流式协议（SSE 多事件通道）、深度思考抽屉状态机、四级角色三重防刷配额上的本质差异。\n`,
       `3. [安全与可观测性验证]：确认所有工具调用均通过后端白名单（${toolMeta.toolName}）完成，API Key 零前端暴露，未配置外网 Key 时平滑切换至 Mock 引擎。\n`,
-      `4. [输出排版规划]：生成结构化 Markdown 对比表格（支持联动 ECharts 柱状图/折线图渲染），并在关键结论处注入可点击的【引用来源 [1]】与【引用来源 [2]】角标。`,
+      `4. [输出排版规划]：生成结构化 Markdown 对比表格（支持联动 ECharts 柱状图/折线图渲染）。`,
     ]
 
     for (const seg of thoughtSegments) {
@@ -581,21 +554,21 @@ export function useChatStream() {
     assistantMsg.isThinking = false
     await sleep(80)
 
-    // 4. 流式推送结构化正文 content（含 Markdown 对比表格与【引用来源 [1]】【引用来源 [2]】标记）
+    // 4. 流式推送结构化正文 content（含 Markdown 对比表格）
     const answerSegments = [
-      `针对您的提问 **「${userPrompt.slice(0, 48)}」**，结合本地知识库检索与 Agent 工具链分析，为您呈现结构化技术洞察 【引用来源 [1]】：\n\n`,
+      `针对您的提问 **「${userPrompt.slice(0, 48)}」**，结合 Agent 工具链与技术规范分析，为您呈现结构化洞察：\n\n`,
       `### 一、核心架构演进与机制解析\n\n`,
-      `1. **全链路流式状态机与深度思考解耦**：XCWeb 通过 \`POST /api/chat/completions\` 建立标准化 SSE 管道，将上游推理模型的 \`<think>\` 标签与 \`reasoning_content\` 统一规范化为 \`thinking\` 事件，在前端独立思考抽屉中实时计时，并在思考完成瞬间以 **600ms \`slideUp\`** 动效平滑托出正文 【引用来源 [1]】。\n`,
-      `2. **四级角色权限与游客三重防刷矩阵**：系统对游客实施 **匿名签名令牌 (\`guestId\`) + 浏览器指纹 (\`X-Fingerprint\`) + 客户端 IP** 三重独立计数拦截（游客 10次/日 · 4K Tokens，普通用户 50次/日 · 16K Tokens），兼顾零门槛体验与算力安全 【引用来源 [2]】。\n`,
-      `3. **端侧轻量 RAG 与白名单 Agent 协同**：文档在浏览器本地通过滑动窗口语义分块与 **BM25 + 向量余弦相似度** 混合重排检索 Top-3 段落，全程零原始文件上传服务器 【引用来源 [2]】。\n\n`,
+      `1. **全链路流式状态机与深度思考解耦**：XCWeb 通过 \`POST /api/chat/completions\` 建立标准化 SSE 管道，将上游推理模型的 \`<think>\` 标签与 \`reasoning_content\` 统一规范化为 \`thinking\` 事件，在前端独立思考抽屉中实时计时，并在思考完成瞬间以 **600ms \`slideUp\`** 动效平滑托出正文。\n`,
+      `2. **四级角色权限与游客三重防刷矩阵**：系统对游客实施 **匿名签名令牌 (\`guestId\`) + 浏览器指纹 (\`X-Fingerprint\`) + 客户端 IP** 三重独立计数拦截（游客 10次/日 · 4K Tokens，普通用户 50次/日 · 16K Tokens），兼顾零门槛体验与算力安全。\n`,
+      `3. **极简二级菜单与交互规范**：采用沉浸式二级功能浮层与二级折叠结构，减少一级视觉干扰，让会话历史与对话内容成为核心视觉焦点。\n\n`,
       `### 二、2026 AI-Native 认知架构量化对比表\n\n`,
       `| 评估维度 | 传统聊天套壳方案 | XCWeb AI-Native 平台 | 核心性能提升 |\n`,
       `| :--- | :--- | :--- | :--- |\n`,
       `| 首包流式响应延迟 | 1200ms | 180ms | 85% |\n`,
       `| 深度思考抽屉与微动效帧率 | 30 FPS | 60 FPS | 100% |\n`,
-      `| 端侧 RAG 混合检索召回率 | 62% | 94% | 32% |\n`,
-      `| 配额防刷拦截准确率 | 55% | 99% | 44% |\n\n`,
-      `> 💡 **交互提示**：您可以直接点击上文或底部的 **【引用来源 [1]】**、**【引用来源 [2]】** 徽章预览并高亮原文段落，或在下方的 **Generative UI 卡片** 中一键切换交互式筛选表格、科技蓝柱状图与折线图。`,
+      `| 配额防刷拦截准确率 | 55% | 99% | 44% |\n`,
+      `| 交互层级清晰度 | 单层堆叠臃肿 | 二级结构收拢 | 显著提升 |\n\n`,
+      `> 💡 **交互提示**：您可以在下方的 **Generative UI 卡片** 中一键切换交互式筛选表格、科技蓝柱状图与折线图。`,
     ]
 
     for (const seg of answerSegments) {

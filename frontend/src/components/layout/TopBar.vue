@@ -5,11 +5,9 @@ import {
   Sun,
   Moon,
   EyeOff,
-  Brain,
   ChevronDown,
-  Zap,
   Check,
-  Sparkles,
+  Zap,
 } from 'lucide-vue-next'
 import { useConfigStore } from '@/stores/configStore'
 import { useChatStore } from '@/stores/chatStore'
@@ -36,56 +34,35 @@ function handleToggleTheme() {
 
 <template>
   <header
-    class="relative h-14 px-4 border-b border-subtle bg-card/75 backdrop-blur-md flex items-center justify-between gap-3 z-20"
+    class="relative h-14 px-4 border-b border-subtle bg-card/75 backdrop-blur-md flex items-center justify-between gap-3 z-20 shrink-0"
   >
-    <!-- 左侧：预置模型选择器（仅渲染 /api/models 返回的预置模型，严禁自定义接口或 Key） -->
+    <!-- 左侧：二级预置模型下拉选择器 -->
     <div class="relative flex items-center gap-2.5">
       <button
         type="button"
-        class="flex items-center gap-2.5 px-3 py-1.5 rounded-xl glass-panel hover:border-primary/50 transition-all text-left"
+        class="flex items-center gap-2 px-3 py-1.5 rounded-xl glass-panel hover:border-primary/50 transition-all text-left"
         @click="isModelDropdownOpen = !isModelDropdownOpen"
       >
         <Cpu class="w-4 h-4 text-primary-light shrink-0" />
-        <div class="flex items-center gap-2">
-          <span class="text-xs font-semibold text-main">
-            {{ configStore.currentModelInfo.name }}
-          </span>
-          <span
-            class="text-[10px] px-1.5 py-0.5 rounded bg-elevated text-sub font-mono"
-          >
-            {{ configStore.currentModelInfo.provider }}
-          </span>
-          <span
-            v-if="configStore.currentModelInfo.supportsThinking"
-            class="hidden sm:inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-cyber-cyan/15 text-cyber-cyan border border-cyber-cyan/30"
-          >
-            <Brain class="w-3 h-3" />
-            深度思考
-          </span>
-          <span
-            v-if="configStore.currentModelInfo.isMock || configStore.allExternalKeysMissing"
-            class="hidden md:inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30"
-          >
-            <Sparkles class="w-3 h-3" />
-            Mock 兜底就绪
-          </span>
-        </div>
+        <span class="text-xs font-semibold text-main truncate max-w-[200px] sm:max-w-[280px]">
+          {{ configStore.currentModelInfo.name }}
+        </span>
         <ChevronDown
           class="w-3.5 h-3.5 text-muted transition-transform"
           :class="isModelDropdownOpen ? 'rotate-180' : ''"
         />
       </button>
 
-      <!-- 预置模型下拉面板 -->
+      <!-- 预置模型二级下拉面板 -->
       <div
         v-if="isModelDropdownOpen"
-        class="absolute left-0 top-12 w-80 sm:w-96 p-2 rounded-2xl glass-modal space-y-1 z-50"
+        class="absolute left-0 top-12 w-80 sm:w-96 p-2 rounded-2xl glass-modal shadow-2xl border border-subtle space-y-1 z-50 animate-slide-up"
       >
         <div
           class="px-2.5 py-1.5 flex items-center justify-between text-[11px] text-muted border-b border-subtle"
         >
-          <span>服务端预置模型矩阵（统一托管鉴权）</span>
-          <span class="font-mono">{{ configStore.enabledModels.length }} 可用</span>
+          <span>预置模型矩阵（统一代理托管）</span>
+          <span class="font-mono text-cyber-cyan">{{ configStore.enabledModels.length }} 可用</span>
         </div>
 
         <button
@@ -103,18 +80,18 @@ function handleToggleTheme() {
           <div class="space-y-1 min-w-0">
             <div class="flex items-center gap-1.5 flex-wrap">
               <span class="text-xs font-semibold text-main">{{ model.name }}</span>
-              <span class="text-[10px] px-1.5 py-0.5 rounded bg-elevated text-sub font-mono">
+              <span class="text-[10px] px-1.5 py-0.2 rounded bg-elevated text-sub font-mono">
                 {{ model.provider }}
               </span>
               <span
                 v-if="model.supportsThinking"
-                class="text-[10px] px-1.5 py-0.5 rounded bg-cyber-cyan/15 text-cyber-cyan"
+                class="text-[10px] px-1.5 py-0.2 rounded bg-cyber-cyan/15 text-cyber-cyan"
               >
                 深度思考
               </span>
               <span
                 v-if="model.isMock"
-                class="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400"
+                class="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/15 text-amber-400"
               >
                 内置 Mock
               </span>
@@ -128,43 +105,30 @@ function handleToggleTheme() {
         </button>
       </div>
 
-      <!-- 无痕状态指示器 -->
+      <!-- 无痕状态轻量指示胶囊 -->
       <div
         v-if="chatStore.isIncognito"
-        class="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-indigo-500/20 border border-indigo-400/40 text-indigo-300 text-xs"
+        class="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-indigo-500/15 border border-indigo-400/30 text-indigo-300 text-xs"
       >
         <EyeOff class="w-3.5 h-3.5" />
-        <span>无痕会话中 · 不写入本地与云端</span>
+        <span>无痕会话</span>
       </div>
     </div>
 
-    <!-- 右侧：当前配额与 Token 状态胶囊 + 主题对角线扫屏切换按钮 -->
-    <div class="flex items-center gap-2.5">
-      <!-- 配额与 Token 状态胶囊 -->
+    <!-- 右侧：简洁状态与主题切换 -->
+    <div class="flex items-center gap-2">
+      <!-- 极简配额胶囊 -->
       <div
-        class="hidden sm:flex items-center gap-2 px-3 py-1 rounded-full bg-elevated/70 border border-subtle text-xs"
+        class="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-elevated/60 border border-subtle text-xs text-sub"
       >
         <Zap class="w-3.5 h-3.5 text-cyber-cyan" />
-        <span class="text-sub">
-          配额:
-          <strong class="font-mono text-main">
-            {{
-              quotaStore.unlimited
-                ? '∞'
-                : `${quotaStore.used}/${quotaStore.limit}`
-            }}
-          </strong>
-        </span>
-        <span class="text-muted">|</span>
-        <span class="text-sub">
-          今日 Token:
-          <strong class="font-mono text-main">
-            {{ quotaStore.tokensUsedToday.toLocaleString() }}
-          </strong>
+        <span class="font-mono text-main font-medium">
+          <template v-if="quotaStore.unlimited">无限额</template>
+          <template v-else>{{ quotaStore.used }}/{{ quotaStore.limit }} 次</template>
         </span>
       </div>
 
-      <!-- 主题切换按钮（预留给阶段 2 @Motion-FX-Engineer 的对角线扫屏动效触发锚点） -->
+      <!-- 主题切换按钮 (包含 135° 对角线扫屏动效锚点) -->
       <button
         ref="themeSweepBtnRef"
         type="button"
@@ -182,14 +146,14 @@ function handleToggleTheme() {
         <Moon v-else class="w-4 h-4 text-cyber-cyan" />
       </button>
 
-      <!-- 游客快速登录入口按钮 -->
+      <!-- 游客登录快捷按钮 -->
       <button
         v-if="authStore.isGuest"
         type="button"
-        class="px-3 py-1.5 rounded-xl cyber-btn-primary text-xs font-medium"
+        class="hidden sm:inline-flex px-3 py-1.5 rounded-xl cyber-btn-primary text-xs font-medium"
         @click="authStore.openAuthOverlay('login')"
       >
-        登录领 50 次额度
+        登录
       </button>
     </div>
   </header>

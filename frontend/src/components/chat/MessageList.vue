@@ -4,11 +4,9 @@ import { marked } from 'marked'
 import {
   Sparkles,
   RotateCcw,
-  FileText,
   Edit3,
   Check,
   X,
-  BookOpen,
 } from 'lucide-vue-next'
 import VersionSwitcher from '@/components/chat/VersionSwitcher.vue'
 import ThinkingBlock from '@/components/chat/ThinkingBlock.vue'
@@ -16,7 +14,6 @@ import AgentTimeline from '@/components/chat/AgentTimeline.vue'
 import GenerativeUIRenderer from '@/components/chat/GenerativeUIRenderer.vue'
 import { useLosslessRetry } from '@/composables/useLosslessRetry'
 import { useInlineEdit } from '@/composables/useInlineEdit'
-import { useClientRAG } from '@/composables/useClientRAG'
 import { useChatStore } from '@/stores/chatStore'
 import { useConfigStore } from '@/stores/configStore'
 import type { Message } from '@/types/api'
@@ -31,13 +28,6 @@ const {
   cancelInlineEdit,
   saveInlineEdit,
 } = useInlineEdit()
-const {
-  hasBuiltinWhitepaper,
-  loadSampleWhitepaper,
-  openCitationPreview,
-  openCitationByIndex,
-  openKnowledgeBaseModal,
-} = useClientRAG()
 
 const scrollContainerRef = ref<HTMLElement | null>(null)
 // 记录每条消息在深度思考完成时的滑升动画重播 key (PRD 4.4: 600ms slideUp)
@@ -49,69 +39,38 @@ const quickSuggestions = [
   '演示四级角色配额防刷体系（游客三重校验 + 自然日重置）设计方案',
 ]
 
-/**
- * 渲染 Markdown 并将正文中的【引用来源 [1]】/【引用来源 [1] [2]】转换为可点击的高亮按钮
- */
-function renderMarkdownWithCitations(raw: string): string {
+function renderMarkdown(raw: string): string {
   if (!raw) return ''
   const parsed = marked.parse(raw, { async: false })
-  const html = typeof parsed === 'string' ? parsed : ''
-
-  // 将【引用来源 [1]】或【引用来源 [1] [2]】替换为带 data-rag-cite-index 的可点击徽章
-  return html.replace(
-    /【引用来源\s*((?:\[\d+\]\s*)+)】/g,
-    (_fullMatch, groupStr: string) => {
-      const indices = Array.from(groupStr.matchAll(/\[(\d+)\]/g)).map((m) =>
-        Number(m[1]),
-      )
-      if (indices.length === 0) return _fullMatch
-      const buttons = indices
-        .map(
-          (idx) =>
-            `<button type="button" data-rag-cite-index="${idx}" class="rag-inline-cite-btn inline-flex items-center gap-0.5 mx-0.5 px-1.5 py-0.5 rounded-md bg-cyber-cyan/15 hover:bg-cyber-cyan/30 text-cyber-cyan border border-cyber-cyan/40 font-mono text-[11px] leading-none transition-all cursor-pointer align-baseline">【引用来源 [${idx}]】</button>`,
-        )
-        .join('')
-      return buttons
-    },
-  )
-}
-
-function handleMarkdownContainerClick(event: MouseEvent, msg: Message) {
-  const target = event.target as HTMLElement | null
-  if (!target) return
-  const citeBtn = target.closest<HTMLElement>('[data-rag-cite-index]')
-  if (!citeBtn) return
-
-  const rawIdx = citeBtn.getAttribute('data-rag-cite-index')
-  const citeIndex = rawIdx ? Number.parseInt(rawIdx, 10) : 1
-  if (!Number.isNaN(citeIndex)) {
-    openCitationByIndex(msg, citeIndex)
-  }
+  return typeof parsed === 'string' ? parsed : ''
 }
 
 function handleThinkingComplete(messageId: string) {
+  // 思考结束时触发正文重播 600ms 自下而上滑升动效 (PRD 4.4)
   answerSlideAnimKey.value[messageId] = Date.now()
 }
 
-function handleMountSampleWhitepaper() {
-  loadSampleWhitepaper()
-  openKnowledgeBaseModal()
+function onStartInlineEdit(msg: Message) {
+  const el = document.querySelector(`[data-message-id="${msg.id}"] .message-user-bubble`)
+  void handleInlineEdit(msg, el as HTMLElement | null)
 }
 
-async function onStartInlineEdit(msg: Message) {
-  await handleInlineEdit(msg)
+function onCancelInlineEdit(msg: Message) {
+  const el = document.querySelector(`[data-message-id="${msg.id}"] .message-user-bubble`)
+  void cancelInlineEdit(msg, el as HTMLElement | null)
 }
 
-async function onCancelInlineEdit(msg: Message) {
-  await cancelInlineEdit(msg)
+function onSaveInlineEdit(msg: Message) {
+  const el = document.querySelector(`[data-message-id="${msg.id}"] .message-user-bubble`)
+  void saveInlineEdit(msg, el as HTMLElement | null)
 }
 
-async function onSaveInlineEdit(msg: Message) {
-  await saveInlineEdit(msg)
-}
+function onLosslessRetryClick(msg: Message) {
+  const bubbleEl = document.querySelector(
+    `[data-message-id="${msg.id}"] .message-user-bubble`,
+  ) as HTMLElement | null
 
-async function onLosslessRetryClick(msg: Message) {
-  await handleLosslessRetry(msg.id)
+  void handleLosslessRetry(msg.id, bubbleEl)
 }
 
 watch(
@@ -132,10 +91,10 @@ watch(
     class="flex-1 overflow-y-auto px-4 py-6 scroll-smooth"
   >
     <div class="max-w-4xl mx-auto space-y-6">
-      <!-- 空状态欢迎面板 -->
+      <!-- 空状态欢迎面板 (简洁精致) -->
       <div
         v-if="chatStore.currentMessages.length === 0"
-        class="py-12 flex flex-col items-center text-center space-y-6 animate-slide-up"
+        class="py-16 flex flex-col items-center text-center space-y-6 animate-slide-up"
       >
         <div
           class="w-14 h-14 rounded-2xl cyber-btn-primary flex items-center justify-center shadow-cyber-glow"
@@ -143,45 +102,21 @@ watch(
           <Sparkles class="w-7 h-7 text-white" />
         </div>
 
-        <div class="space-y-2 max-w-xl">
+        <div class="space-y-2 max-w-lg">
           <h1 class="text-2xl font-bold text-main tracking-tight">
-            XCWeb · 智启未来 AI 对话与智能体平台
+            智启未来 · XCWeb
           </h1>
           <p class="text-xs text-sub leading-relaxed">
-            当前挂载模型：
+            当前挂载：
             <span class="font-mono text-primary-light font-semibold">
               {{ configStore.currentModelInfo.name }}
             </span>
-            · 支持深度思考思维链抽屉、Agent 决策时间轴、端侧轻量 RAG 与无损多版本分支重试
+            · 支持深度思考思维链、Agent 决策时序与无损多版本分支
           </p>
         </div>
 
-        <!-- 端侧轻量 RAG 快捷体验入口 -->
-        <div class="flex flex-wrap items-center justify-center gap-2">
-          <button
-            v-if="!hasBuiltinWhitepaper"
-            type="button"
-            class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs bg-cyber-cyan/15 hover:bg-cyber-cyan/25 text-cyber-cyan border border-cyber-cyan/40 transition-all shadow-cyber-cyan"
-            @click="handleMountSampleWhitepaper"
-          >
-            <BookOpen class="w-3.5 h-3.5" />
-            <span>一键挂载内置《XCWeb 2026 技术白皮书》（体验端侧 RAG 检索与原文高亮）</span>
-          </button>
-          <button
-            v-else
-            type="button"
-            class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/40 transition-all"
-            @click="openKnowledgeBaseModal"
-          >
-            <BookOpen class="w-3.5 h-3.5" />
-            <span>
-              已挂载端侧 RAG 知识库 ({{ chatStore.ragDocuments.length }} 篇 ·
-              {{ chatStore.activeRagChunks.length }} 语义分块) · 点击预览
-            </span>
-          </button>
-        </div>
-
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full max-w-3xl pt-1">
+        <!-- 快速灵感建议卡片 -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full max-w-2xl pt-2">
           <button
             v-for="(item, index) in quickSuggestions"
             :key="index"
@@ -194,7 +129,7 @@ watch(
         </div>
       </div>
 
-      <!-- 消息列表流（集成四项核心微动效锚点 + Agent 时间轴 + 深度思考抽屉 + 端侧 RAG 引用高亮） -->
+      <!-- 消息列表流 -->
       <div
         v-for="msg in chatStore.currentMessages"
         :key="msg.id"
@@ -206,11 +141,12 @@ watch(
           <div
             class="message-user-bubble max-w-2xl rounded-2xl px-4 py-3 text-sm leading-relaxed transition-all duration-500"
             :class="[
-              msg.isRetrying && editingMessageId !== msg.id
-                ? 'is-retrying-shifted -translate-x-[150px] opacity-45 border border-primary/50 bg-primary/10'
-                : editingMessageId === msg.id
-                  ? 'bg-card border border-primary/60 shadow-cyber-glow'
-                  : 'cyber-btn-primary',
+              msg.isRetrying
+                ? '-translate-x-[150px] opacity-45 border border-primary/50 bg-primary/10 shadow-cyber-glow'
+                : 'cyber-btn-primary',
+              editingMessageId === msg.id
+                ? 'w-full max-w-none bg-card border border-primary/50 shadow-cyber-glow'
+                : '',
             ]"
           >
             <!-- 动效 4：自适应内联编辑态 (PRD 4.3) -->
@@ -259,7 +195,7 @@ watch(
               @click="onStartInlineEdit(msg)"
             >
               <Edit3 class="w-3 h-3" />
-              <span>编辑提问</span>
+              <span>编辑</span>
             </button>
 
             <button
@@ -293,7 +229,7 @@ watch(
                 v-if="msg.isMock"
                 class="px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-400 border border-amber-500/30 font-mono"
               >
-                Mock 降级响应 (mock = true)
+                Mock 降级响应
               </span>
               <span v-if="msg.usage" class="text-muted font-mono">
                 · {{ msg.usage.totalTokens }} Tokens
@@ -319,13 +255,12 @@ watch(
                   @thinking-complete="handleThinkingComplete"
                 />
 
-                <!-- 3. 正文区域：思考结束后触发 600ms slideUp，且内联【引用来源 [1]】可点击打开原文高亮 (PRD 4.4 & 6.2) -->
+                <!-- 3. 正文区域：思考结束后触发 600ms slideUp (PRD 4.4) -->
                 <div
                   v-if="msg.content"
                   :key="answerSlideAnimKey[msg.id] || msg.id"
                   class="glass-panel rounded-2xl p-4 text-sm text-main leading-relaxed answer-slide-up space-y-2 prose prose-invert max-w-none"
-                  @click="handleMarkdownContainerClick($event, msg)"
-                  v-html="renderMarkdownWithCitations(msg.content)"
+                  v-html="renderMarkdown(msg.content)"
                 />
 
                 <!-- 4. 生成式交互 UI 卡片：当回答包含 Markdown 对比表格时动态渲染筛选表与科技蓝 ECharts 图表 (PRD 6.3) -->
@@ -335,29 +270,6 @@ watch(
                   :message-id="msg.id"
                   :hide-markdown="true"
                 />
-
-                <!-- 5. 端侧 RAG 引用来源底部徽章列表（点击弹出 RagPreviewModal 跳转并高亮原文位置） (PRD 6.2) -->
-                <div
-                  v-if="msg.ragCitations && msg.ragCitations.length > 0"
-                  class="flex items-center flex-wrap gap-1.5 pt-1"
-                >
-                  <span class="text-[11px] text-muted flex items-center gap-1">
-                    <FileText class="w-3 h-3 text-cyber-cyan" />
-                    端侧 RAG 引用来源（点击高亮原文）：
-                  </span>
-                  <button
-                    v-for="cite in msg.ragCitations"
-                    :key="cite.chunkId"
-                    type="button"
-                    class="text-[11px] px-2.5 py-0.5 rounded-md bg-cyber-cyan/15 text-cyber-cyan border border-cyber-cyan/35 hover:bg-cyber-cyan/30 hover:shadow-cyber-cyan transition-all font-mono"
-                    :title="cite.content"
-                    @click="openCitationPreview(cite)"
-                  >
-                    【引用来源 [{{ cite.index }}]】 {{ cite.docName }} ({{
-                      Math.round((cite.score || 0.92) * 100)
-                    }}%)
-                  </button>
-                </div>
               </div>
             </VersionSwitcher>
           </div>

@@ -1,14 +1,13 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import {
   Send,
   Square,
   Brain,
   Bot,
-  Paperclip,
-  FileText,
-  X,
   RotateCcw,
+  Sliders,
+  ChevronUp,
 } from 'lucide-vue-next'
 import { useChatStore } from '@/stores/chatStore'
 import { useConfigStore } from '@/stores/configStore'
@@ -19,19 +18,15 @@ const configStore = useConfigStore()
 const quotaStore = useQuotaStore()
 
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
-const fileInputRef = ref<HTMLInputElement | null>(null)
+const isCapabilityPopoverOpen = ref<boolean>(false)
+const capabilityContainerRef = ref<HTMLElement | null>(null)
 
 // 估算当前上下文 + 输入框的累计 Token 数量
 const estimatedContextTokens = computed<number>(() => {
   const historyText = chatStore.currentMessages.map((m) => m.content).join('\n')
-  const ragText = chatStore.activeRagChunks
-    .slice(0, 3)
-    .map((c) => c.content)
-    .join('\n')
   const combined = [
     configStore.systemPrompt,
     historyText,
-    ragText,
     chatStore.inputDraft,
   ]
     .filter(Boolean)
@@ -73,60 +68,42 @@ async function handleSend() {
   await nextTick(adjustTextareaHeight)
 }
 
-async function handleFileSelect(e: Event) {
-  const input = e.target as HTMLInputElement
-  const files = input.files
-  if (!files || files.length === 0) return
-  for (let i = 0; i < files.length; i++) {
-    await chatStore.addRagDocument(files[i])
+function handleClickOutside(e: MouseEvent) {
+  if (
+    capabilityContainerRef.value &&
+    !capabilityContainerRef.value.contains(e.target as Node)
+  ) {
+    isCapabilityPopoverOpen.value = false
   }
-  input.value = ''
 }
+
+onMounted(() => {
+  document.addEventListener('click', handleClickOutside)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('click', handleClickOutside)
+})
 </script>
 
 <template>
-  <div class="w-full max-w-4xl mx-auto px-4 pb-4 pt-2 z-10">
-    <!-- 无损历史重试状态横幅 (PRD 4.3) -->
+  <div class="w-full max-w-4xl mx-auto px-4 pb-4 pt-1 z-10">
+    <!-- 无损历史重试状态微横幅 -->
     <div
       v-if="chatStore.retryingMessageId"
-      class="mb-2 px-3.5 py-2 rounded-xl bg-primary/15 border border-primary/40 flex items-center justify-between text-xs text-primary-light"
+      class="mb-2 px-3 py-1.5 rounded-xl bg-primary/15 border border-primary/40 flex items-center justify-between text-xs text-primary-light"
     >
       <div class="flex items-center gap-2">
         <RotateCcw class="w-3.5 h-3.5 animate-spin" />
-        <span>
-          正在对历史提问执行<strong>无损重试</strong>：后续对话将完整保留，新回答将作为新版本分支追加
-        </span>
+        <span>正在无损重试：后续对话将保留，新回答作为新版本分支生成</span>
       </div>
       <button
         type="button"
         class="text-muted hover:text-main"
         @click="chatStore.clearLosslessRetryState()"
       >
-        取消重试
+        取消
       </button>
-    </div>
-
-    <!-- 已挂载的端侧 RAG 本地文档胶囊列表 -->
-    <div
-      v-if="chatStore.ragDocuments.length > 0"
-      class="flex flex-wrap items-center gap-1.5 mb-2"
-    >
-      <div
-        v-for="doc in chatStore.ragDocuments"
-        :key="doc.id"
-        class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-cyber-cyan/10 border border-cyber-cyan/30 text-xs text-cyber-cyan"
-      >
-        <FileText class="w-3.5 h-3.5 shrink-0" />
-        <span class="max-w-[160px] truncate">{{ doc.name }}</span>
-        <span class="text-[10px] opacity-80">({{ doc.chunksCount }} 切片)</span>
-        <button
-          type="button"
-          class="hover:text-white transition-colors"
-          @click="chatStore.removeRagDocument(doc.id)"
-        >
-          <X class="w-3 h-3" />
-        </button>
-      </div>
     </div>
 
     <!-- 主输入容器：带 .chat-input-target 锚点供阶段 2 无损历史重试克隆气泡飞入定位 -->
@@ -137,98 +114,176 @@ async function handleFileSelect(e: Event) {
         ref="textareaRef"
         v-model="chatStore.inputDraft"
         rows="2"
-        placeholder="输入任何问题，支持 Markdown、代码分析、Agent 任务拆解与端侧文档检索... (Enter 发送，Shift + Enter 换行)"
+        placeholder="输入任何问题，Shift + Enter 换行，Enter 发送..."
         class="w-full bg-transparent text-sm text-main placeholder-muted resize-none focus:outline-none leading-relaxed max-h-44"
         @keydown="handleKeydown"
       />
 
-      <!-- 底部功能胶囊与 Token 实时估算栏 -->
-      <div class="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-subtle/60">
-        <!-- 左侧开关胶囊：深度思考、Agent 工具链、挂载本地 RAG 文档 -->
-        <div class="flex items-center flex-wrap gap-1.5">
+      <!-- 底部精简工具栏 -->
+      <div class="flex items-center justify-between gap-2 pt-2 border-t border-subtle/60">
+        <!-- 左侧：二级模式配置浮层入口 + 快速状态微胶囊 -->
+        <div ref="capabilityContainerRef" class="relative flex items-center gap-1.5">
+          <!-- 二级配置唤起按钮 -->
           <button
             type="button"
-            class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs border transition-all"
+            class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs transition-all border"
+            :class="
+              isCapabilityPopoverOpen
+                ? 'bg-primary/20 text-primary-light border-primary/50'
+                : 'bg-elevated/70 text-sub border-subtle hover:text-main hover:border-primary/40'
+            "
+            title="展开二级模式配置"
+            @click="isCapabilityPopoverOpen = !isCapabilityPopoverOpen"
+          >
+            <Sliders class="w-3.5 h-3.5 text-primary-light" />
+            <span>模式配置</span>
+            <ChevronUp
+              class="w-3 h-3 text-muted transition-transform"
+              :class="isCapabilityPopoverOpen ? 'rotate-180' : ''"
+            />
+          </button>
+
+          <!-- 快速状态微指示标签 (可直接点击微调) -->
+          <button
+            type="button"
+            class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] border transition-all"
             :class="
               configStore.enableThinking
-                ? 'bg-cyber-cyan/15 text-cyber-cyan border-cyber-cyan/40 shadow-cyber-cyan'
-                : 'bg-elevated/60 text-muted border-subtle hover:text-main'
+                ? 'bg-cyber-cyan/15 text-cyber-cyan border-cyber-cyan/35'
+                : 'bg-elevated/40 text-muted border-transparent hover:text-sub'
             "
+            :title="`深度思考: ${configStore.enableThinking ? '开启' : '关闭'}`"
             @click="configStore.updateSettings({ enableThinking: !configStore.enableThinking })"
           >
-            <Brain class="w-3.5 h-3.5" />
-            <span>深度思考</span>
+            <Brain class="w-3 h-3" />
+            <span>思考</span>
           </button>
 
           <button
             type="button"
-            class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs border transition-all"
+            class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] border transition-all"
             :class="
               configStore.enableAgent
-                ? 'bg-primary/20 text-primary-light border-primary/50 shadow-cyber-glow'
-                : 'bg-elevated/60 text-muted border-subtle hover:text-main'
+                ? 'bg-primary/20 text-primary-light border-primary/40'
+                : 'bg-elevated/40 text-muted border-transparent hover:text-sub'
             "
+            :title="`Agent 规划: ${configStore.enableAgent ? '开启' : '关闭'}`"
             @click="configStore.updateSettings({ enableAgent: !configStore.enableAgent })"
           >
-            <Bot class="w-3.5 h-3.5" />
-            <span>Agent 规划</span>
+            <Bot class="w-3 h-3" />
+            <span>Agent</span>
           </button>
 
-          <button
-            type="button"
-            class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs bg-elevated/60 text-sub border border-subtle hover:text-main hover:border-cyber-cyan/40 transition-all"
-            title="挂载本地知识文档（仅在浏览器端侧分块检索）"
-            @click="fileInputRef?.click()"
+          <!-- 二级模式配置浮层面板 (Capability Popover) -->
+          <div
+            v-if="isCapabilityPopoverOpen"
+            class="absolute left-0 bottom-10 w-72 p-3 rounded-2xl glass-modal shadow-2xl border border-subtle space-y-3 z-50 text-xs animate-slide-up"
           >
-            <Paperclip class="w-3.5 h-3.5 text-cyber-cyan" />
-            <span>挂载本地文档</span>
-          </button>
-          <input
-            ref="fileInputRef"
-            type="file"
-            accept=".txt,.md,.json,.csv,.ts,.js,.py,.java,.sql"
-            multiple
-            class="hidden"
-            @change="handleFileSelect"
-          />
+            <div class="flex items-center justify-between text-xs font-semibold text-main pb-1 border-b border-subtle">
+              <span>模型推理与协同能力</span>
+              <span class="text-[10px] text-muted font-normal">二级配置项</span>
+            </div>
+
+            <!-- 深度思考开关 -->
+            <div
+              class="flex items-center justify-between p-2 rounded-xl bg-elevated/50 border border-subtle cursor-pointer hover:border-primary/40 transition-colors"
+              @click="configStore.updateSettings({ enableThinking: !configStore.enableThinking })"
+            >
+              <div class="space-y-0.5 min-w-0 pr-2">
+                <div class="flex items-center gap-1.5 font-medium text-main">
+                  <Brain class="w-3.5 h-3.5 text-cyber-cyan" />
+                  <span>深度思考思维链</span>
+                </div>
+                <p class="text-[10px] text-muted leading-tight">
+                  呈现模型反思推理过程与跳动计时器
+                </p>
+              </div>
+              <div
+                class="w-9 h-5 rounded-full transition-colors relative flex items-center p-0.5 shrink-0"
+                :class="configStore.enableThinking ? 'bg-cyber-cyan' : 'bg-elevated border border-subtle'"
+              >
+                <div
+                  class="w-4 h-4 rounded-full bg-white transition-transform"
+                  :class="configStore.enableThinking ? 'translate-x-4' : 'translate-x-0'"
+                />
+              </div>
+            </div>
+
+            <!-- Agent 规划开关 -->
+            <div
+              class="flex items-center justify-between p-2 rounded-xl bg-elevated/50 border border-subtle cursor-pointer hover:border-primary/40 transition-colors"
+              @click="configStore.updateSettings({ enableAgent: !configStore.enableAgent })"
+            >
+              <div class="space-y-0.5 min-w-0 pr-2">
+                <div class="flex items-center gap-1.5 font-medium text-main">
+                  <Bot class="w-3.5 h-3.5 text-primary-light" />
+                  <span>Agent 规划与工具链</span>
+                </div>
+                <p class="text-[10px] text-muted leading-tight">
+                  多阶段决策（规划、工具调用、数据总结）
+                </p>
+              </div>
+              <div
+                class="w-9 h-5 rounded-full transition-colors relative flex items-center p-0.5 shrink-0"
+                :class="configStore.enableAgent ? 'bg-primary' : 'bg-elevated border border-subtle'"
+              >
+                <div
+                  class="w-4 h-4 rounded-full bg-white transition-transform"
+                  :class="configStore.enableAgent ? 'translate-x-4' : 'translate-x-0'"
+                />
+              </div>
+            </div>
+
+            <!-- 上下文 Token 详情 -->
+            <div class="p-2 rounded-xl bg-elevated/30 border border-subtle text-[11px] space-y-1">
+              <div class="flex items-center justify-between text-muted">
+                <span>上下文占用估算</span>
+                <span class="font-mono text-main">
+                  {{ estimatedContextTokens.toLocaleString() }}
+                  /
+                  {{ quotaStore.unlimited ? '∞' : `${quotaStore.contextTokenLimit / 1000}K` }}
+                </span>
+              </div>
+              <div
+                v-if="!quotaStore.unlimited"
+                class="w-full h-1 rounded-full bg-elevated overflow-hidden"
+              >
+                <div
+                  class="h-full rounded-full transition-all"
+                  :class="isOverContextLimit ? 'bg-red-500' : 'bg-primary-light'"
+                  :style="{
+                    width: `${Math.min(100, (estimatedContextTokens / quotaStore.contextTokenLimit) * 100)}%`,
+                  }"
+                />
+              </div>
+            </div>
+          </div>
         </div>
 
-        <!-- 右侧：实时上下文 Token 估算 + 发送/停止按钮 -->
-        <div class="flex items-center gap-3 ml-auto">
+        <!-- 右侧：简洁 Token 计数 + 发送/停止按钮 -->
+        <div class="flex items-center gap-2.5 ml-auto">
           <span
-            class="text-xs font-mono transition-colors"
-            :class="
-              isOverContextLimit
-                ? 'text-red-400 font-semibold'
-                : estimatedContextTokens > quotaStore.contextTokenLimit * 0.8
-                  ? 'text-amber-400'
-                  : 'text-muted'
-            "
+            class="text-[11px] font-mono text-muted"
+            :class="isOverContextLimit ? 'text-red-400 font-semibold' : ''"
           >
-            <template v-if="quotaStore.unlimited">
-              {{ estimatedContextTokens.toLocaleString() }} / ∞ Tokens
-            </template>
-            <template v-else>
-              {{ estimatedContextTokens.toLocaleString() }} /
-              {{ quotaStore.contextTokenLimit.toLocaleString() }} Tokens
-            </template>
+            {{ estimatedContextTokens.toLocaleString() }} Tokens
           </span>
 
           <button
             v-if="chatStore.isGenerating"
             type="button"
-            class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-red-500/20 border border-red-500/40 text-red-300 hover:bg-red-500/30 text-xs font-medium transition-all"
+            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-500/20 border border-red-500/40 text-red-300 hover:bg-red-500/30 text-xs font-medium transition-all"
             @click="chatStore.stopGeneration()"
           >
             <Square class="w-3.5 h-3.5 fill-current" />
-            <span>停止生成</span>
+            <span>停止</span>
           </button>
 
           <button
             v-else
             type="button"
             :disabled="!chatStore.inputDraft.trim()"
-            class="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl cyber-btn-primary text-xs font-medium"
+            class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl cyber-btn-primary text-xs font-medium"
             @click="handleSend"
           >
             <Send class="w-3.5 h-3.5" />

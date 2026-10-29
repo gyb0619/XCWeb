@@ -232,6 +232,7 @@ class XcWebBackendIntegrationTests {
                 assertThat(sseBody).contains("event:usage");
                 assertThat(sseBody).contains("event:done");
             }
+            Thread.sleep(30);
         }
 
         // 11th call with Token A -> 429 QUOTA_EXCEEDED

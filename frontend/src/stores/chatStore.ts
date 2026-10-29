@@ -647,17 +647,13 @@ export const useChatStore = defineStore('chat', () => {
     const controller = new AbortController()
     abortController.value = controller
 
-    const lastUserContent =
-      contextMessages[contextMessages.length - 1]?.content || ''
-    const matchedRag = retrieveTopRagChunks(lastUserContent, 3)
-
     assistantMsg.isStreaming = true
     assistantMsg.isThinking = configStore.enableThinking
     assistantMsg.content = ''
     assistantMsg.thinkingContent = configStore.enableThinking ? '' : null
     assistantMsg.thinkingDurationMs = 0
     assistantMsg.agentSteps = []
-    assistantMsg.ragCitations = matchedRag
+    assistantMsg.ragCitations = []
     assistantMsg.model = configStore.selectedModel
 
     const requestBody: ChatCompletionRequest = {
@@ -672,7 +668,6 @@ export const useChatStore = defineStore('chat', () => {
       ],
       enableThinking: configStore.enableThinking,
       enableAgent: configStore.enableAgent,
-      ragContext: matchedRag.length > 0 ? matchedRag : undefined,
       temperature: 0.7,
     }
 
@@ -948,7 +943,7 @@ export const useChatStore = defineStore('chat', () => {
         userPrompt.slice(0, 36),
         '」...\n',
         '1. 识别核心诉求：结合 XCWeb 科技深邃蓝认知架构给出结构化解答；\n',
-        '2. 检索上下文与端侧 RAG 引用片段，验证配额与安全边界；\n',
+        '2. 验证配额、权限边界与状态机规范；\n',
         '3. 组织 Markdown 层次与对比维度，确保结论清晰可操作。',
       ]
       for (const chunk of thoughtChunks) {
@@ -960,16 +955,11 @@ export const useChatStore = defineStore('chat', () => {
       assistantMsg.isThinking = false
     }
 
-    const citeSuffix =
-      req.ragContext && req.ragContext.length > 0
-        ? `\n\n已结合本地知识库文档检索结果进行增强分析 【引用来源 [1]】。`
-        : ''
-
     const replyChunks = [
       `针对您的提问 **「${userPrompt.slice(0, 40)}」**，以下是 XCWeb 认知引擎的分析结果：\n\n`,
       `### 核心架构洞察\n`,
       `- **四级角色配额防刷体系**：支持游客（10次/日 · 4K上下文）、普通用户（50次/日 · 16K上下文）、管理员与开发者四级权限管控。\n`,
-      `- **全链路流式与平滑降级**：当前处于 **内置 Mock 仿真模式**（\`mock = true\`），无需外网或 API Key 即可完整体验深度思考抽屉、无损历史重试与多版本分支切换。${citeSuffix}`,
+      `- **全链路流式与平滑降级**：当前处于 **内置 Mock 仿真模式**（\`mock = true\`），无需外网或 API Key 即可完整体验深度思考抽屉、无损历史重试与多版本分支切换。`,
     ]
 
     for (const chunk of replyChunks) {
