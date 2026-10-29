@@ -31,7 +31,7 @@ export async function buildAuthHeaders(
     ...extraHeaders,
   }
 
-  if (authStore.token && !authStore.token.startsWith('guest_offline_')) {
+  if (authStore.token) {
     headers['Authorization'] = `Bearer ${authStore.token}`
   }
 
@@ -94,6 +94,7 @@ export async function handleHttpErrorResponse(response: Response, url?: string):
       (url.includes('/api/auth/guest') ||
         url.includes('/api/auth/login') ||
         url.includes('/api/auth/register') ||
+        url.includes('/api/auth/demo-switch') ||
         url.includes('/api/auth/me'))
     const isQuotaStatus = url && url.includes('/api/quota/status')
 

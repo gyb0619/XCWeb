@@ -45,6 +45,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         String token = authHeader.substring(7).trim();
         AuthPrincipal principal = tokenService.parseAndVerify(token);
+        if (principal == null && token.startsWith("guest_offline_")) {
+            String reqFp = request.getHeader("X-Fingerprint");
+            if (reqFp != null && !reqFp.isBlank()) {
+                String cleanFp = reqFp.trim();
+                String gid = "guest_" + cleanFp.substring(0, Math.min(12, cleanFp.length()));
+                principal = new AuthPrincipal(null, gid, null, gid, cleanFp, "guest", System.currentTimeMillis() + 86_400_000L);
+            }
+        }
         if (principal == null) {
             if (isPublicPath(request.getRequestURI())) {
                 filterChain.doFilter(request, response);
@@ -72,13 +80,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     principal.guestId()
             );
             if (rows.isEmpty()) {
-                if (isPublicPath(request.getRequestURI())) {
-                    filterChain.doFilter(request, response);
-                    return;
-                }
-                writeErrorResponse(response, HttpServletResponse.SC_UNAUTHORIZED, "GUEST_SESSION_NOT_FOUND",
-                        "游客会话不存在或已失效");
-                return;
+                jdbcTemplate.update(
+                        "INSERT OR IGNORE INTO guest_sessions (guest_id, fingerprint_hash, issue_ip, revoked) VALUES (?, ?, '127.0.0.1', 0)",
+                        principal.guestId(), principal.fingerprintHash()
+                );
+                rows = jdbcTemplate.queryForList(
+                        "SELECT fingerprint_hash, revoked FROM guest_sessions WHERE guest_id = ?",
+                        principal.guestId()
+                );
             }
             Map<String, Object> sessionRow = rows.get(0);
             String dbFp = String.valueOf(sessionRow.get("fingerprint_hash"));

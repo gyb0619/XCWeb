@@ -11,6 +11,7 @@ import type {
 } from '@/types/api'
 import { buildAuthHeaders, handleHttpErrorResponse } from '@/utils/apiClient'
 import { useQuotaStore } from '@/stores/quotaStore'
+import { useAuthStore } from '@/stores/authStore'
 
 /**
  * 客户端 <think>...</think> 标签流式剥离状态机
@@ -119,12 +120,21 @@ export function useChatStream() {
     signal: AbortSignal,
   ): Promise<void> {
     const quotaStore = useQuotaStore()
+    const authStore = useAuthStore()
     isStreaming.value = true
     streamError.value = null
 
     const startTime = performance.now()
 
-    const headers = await buildAuthHeaders({
+    if (!authStore.token || authStore.token.startsWith('guest_offline_')) {
+      try {
+        await authStore.loginAsGuest(true)
+      } catch {
+        // fallback handled below
+      }
+    }
+
+    let headers = await buildAuthHeaders({
       'Content-Type': 'application/json',
       Accept: 'text/event-stream',
     })
@@ -137,6 +147,19 @@ export function useChatStream() {
         body: JSON.stringify(req),
         signal,
       })
+      if (response.status === 401 || response.status === 403) {
+        await authStore.loginAsGuest(true)
+        headers = await buildAuthHeaders({
+          'Content-Type': 'application/json',
+          Accept: 'text/event-stream',
+        })
+        response = await fetch('/api/chat/completions', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(req),
+          signal,
+        })
+      }
     } catch (err) {
       if ((err as Error)?.name === 'AbortError') {
         isStreaming.value = false

@@ -126,14 +126,22 @@ export const useAuthStore = defineStore('auth', () => {
           fingerprintHash.value = await getBrowserFingerprint()
         }
 
-        let session: GuestSession
+        let session: GuestSession | null = null
         let isFallback = false
-        try {
-          session = await apiRequest<GuestSession>('/api/auth/guest', {
-            method: 'POST',
-            body: JSON.stringify({ fingerprintHash: fingerprintHash.value }),
-          })
-        } catch {
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            session = await apiRequest<GuestSession>('/api/auth/guest', {
+              method: 'POST',
+              body: JSON.stringify({ fingerprintHash: fingerprintHash.value }),
+            })
+            break
+          } catch (err) {
+            if (attempt < 2) {
+              await new Promise((r) => setTimeout(r, 1200))
+            }
+          }
+        }
+        if (!session) {
           // 离线或后端未启动时的本地兜底匿名会话
           isFallback = true
           const fallbackId =
@@ -307,8 +315,16 @@ export const useAuthStore = defineStore('auth', () => {
       },
     }
 
-    const targetUser = demoUsers[targetRole]
-    persistAuthState(`demo_jwt_${targetRole}_${Date.now()}`, targetUser)
+    try {
+      const res = await apiRequest<AuthResponse>('/api/auth/demo-switch', {
+        method: 'POST',
+        body: JSON.stringify({ role: targetRole }),
+      })
+      persistAuthState(res.token, res.user)
+    } catch {
+      const targetUser = demoUsers[targetRole]
+      persistAuthState(`demo_jwt_${targetRole}_${Date.now()}`, targetUser)
+    }
 
     quotaStore.applyRoleDefaults(targetRole)
     await quotaStore.fetchQuotaStatus()
@@ -330,27 +346,15 @@ export const useAuthStore = defineStore('auth', () => {
   function handleUnauthorized(reason?: string) {
     if (isRecoveringAuth) return
     isRecoveringAuth = true
-    authError.value = reason || '登录状态已失效，请重新认证'
-
-    const hadValidToken = Boolean(
-      token.value &&
-      !token.value.startsWith('guest_offline_') &&
-      !token.value.startsWith('demo_')
-    )
+    authError.value = reason || '登录状态已失效，正在自动重新获取会话'
 
     persistAuthState('', null)
 
-    if (hadValidToken) {
-      void loginAsGuest(true).finally(() => {
-        setTimeout(() => {
-          isRecoveringAuth = false
-        }, 1500)
-      })
-    } else {
+    void loginAsGuest(true).finally(() => {
       setTimeout(() => {
         isRecoveringAuth = false
-      }, 1000)
-    }
+      }, 2000)
+    })
   }
 
   return {

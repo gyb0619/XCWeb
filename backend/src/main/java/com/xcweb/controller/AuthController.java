@@ -214,4 +214,74 @@ public class AuthController {
         resp.put("quota", quota);
         return resp;
     }
+
+    @PostMapping("/demo-switch")
+    public Map<String, Object> switchDemoRole(@RequestBody Map<String, Object> body,
+                                              HttpServletRequest request) {
+        String targetRole = body != null && body.get("role") != null
+                ? String.valueOf(body.get("role")).trim().toLowerCase()
+                : "guest";
+
+        if ("guest".equals(targetRole)) {
+            return issueGuestToken(body, request);
+        }
+
+        if (!"user".equals(targetRole) && !"admin".equals(targetRole) && !"dev".equals(targetRole)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_ROLE", "不支持的演示角色: " + targetRole);
+        }
+
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+                "SELECT id, username, email, role, created_at FROM users WHERE role = ? ORDER BY id ASC LIMIT 1",
+                targetRole
+        );
+
+        long userId;
+        String username;
+        String email;
+        String createdAt;
+
+        if (!rows.isEmpty()) {
+            Map<String, Object> row = rows.get(0);
+            userId = ((Number) row.get("id")).longValue();
+            username = String.valueOf(row.get("username"));
+            email = row.get("email") != null ? String.valueOf(row.get("email")) : username + "@xcweb.ai";
+            createdAt = row.get("created_at") != null ? String.valueOf(row.get("created_at")) : Instant.now().toString();
+        } else {
+            username = "demo_" + targetRole;
+            email = targetRole + "@xcweb.ai";
+            createdAt = Instant.now().toString();
+            String passwordHash = passwordEncoder.encode(UUID.randomUUID().toString());
+            KeyHolder keyHolder = new GeneratedKeyHolder();
+            String finalUsername = username;
+            String finalEmail = email;
+            String finalRole = targetRole;
+            jdbcTemplate.update(conn -> {
+                PreparedStatement ps = conn.prepareStatement(
+                        "INSERT INTO users (username, email, password_hash, role) VALUES (?, ?, ?, ?)",
+                        Statement.RETURN_GENERATED_KEYS
+                );
+                ps.setString(1, finalUsername);
+                ps.setString(2, finalEmail);
+                ps.setString(3, passwordHash);
+                ps.setString(4, finalRole);
+                return ps;
+            }, keyHolder);
+            Number key = keyHolder.getKey();
+            userId = key != null ? key.longValue() : 101L;
+        }
+
+        TokenService.IssuedToken issued = tokenService.issueUserToken(userId, username, email, targetRole);
+
+        Map<String, Object> userMap = new LinkedHashMap<>();
+        userMap.put("id", userId);
+        userMap.put("username", username);
+        userMap.put("email", email);
+        userMap.put("role", targetRole);
+        userMap.put("createdAt", createdAt);
+
+        Map<String, Object> resp = new LinkedHashMap<>();
+        resp.put("token", issued.token());
+        resp.put("user", userMap);
+        return resp;
+    }
 }

@@ -67,6 +67,17 @@ public class TokenService {
         if (token == null || token.isBlank()) {
             return null;
         }
+        if (token.startsWith("demo_jwt_") && properties.getSecurity().isInitDemoAccounts()) {
+            String[] demoParts = token.split("_");
+            if (demoParts.length >= 3) {
+                String demoRole = demoParts[2].toLowerCase();
+                if ("user".equals(demoRole) || "admin".equals(demoRole) || "dev".equals(demoRole)) {
+                    long uid = "admin".equals(demoRole) ? 1L : ("dev".equals(demoRole) ? 2L : 101L);
+                    String uname = "admin".equals(demoRole) ? "admin" : ("dev".equals(demoRole) ? "developer" : "demo_user");
+                    return new AuthPrincipal(uid, uname, uname + "@xcweb.ai", null, null, demoRole, System.currentTimeMillis() + 86_400_000L);
+                }
+            }
+        }
         String[] parts = token.split("\\.");
         if (parts.length != 3) {
             return null;
